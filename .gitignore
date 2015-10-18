@@ -2,3 +2,5 @@ mnesia_db
 .eunit
 /deps
 /priv/app
+/priv/cards
+/priv/static

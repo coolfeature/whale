@@ -37,8 +37,7 @@ start(_StartType, _StartArgs) ->
   PrivDir = soil_utls:priv_dir(),
   Dispatch = cowboy_router:compile([
     {'_', [
-      {"/static/[...]", cowboy_static, {dir,PrivDir ++ "/static",[{mimetypes, cow_mimetypes, all}]}}
-      ,{"/app/[...]", cowboy_static, {dir,PrivDir ++ "/app",[{mimetypes, cow_mimetypes, all}]}}
+      {"/cards/[...]", cowboy_static, {dir,PrivDir ++ "/cards",[{mimetypes, cow_mimetypes, all}]}}
       ,{"/", soil_rest, []}
       ,{"/bullet/[...]",bullet_handler,[{handler,soil_bullet_handler}]}
     ]}
