@@ -1,0 +1,4 @@
+mnesia_db
+.eunit
+/deps
+/priv/app
