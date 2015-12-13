@@ -31,6 +31,10 @@ start(_StartType, _StartArgs) ->
   ensure_started(merl),
   ensure_started(erlydtl),
 
+  % Erlang JS
+  %ensure_started(sasl),
+  %ensure_started(erlang_js),
+
   %% Norm
   ensure_started(norm),
    
