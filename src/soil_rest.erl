@@ -3,43 +3,89 @@
 -export([init/3]).
 -export([
   rest_init/2
+  ,content_types_accepted/2
   ,content_types_provided/2
-  ,to_html/2
-  ,to_json/2
-  ,to_text/2
+  ,handle_html/2
+  ,handle_json/2
+  ,handle_text/2
   ,rest_terminate/2
+  
+  ,resource_exists/2
+  ,allowed_methods/2
+  ,to_html/3
+
+  ,route_to_html/2
+  ,route_handle_json/2
 ]).
 
--record(state,{templates_path,sid}).
+%% ============================================================================
 
 init(_Transport, _Req, _Opts) ->
   {upgrade, protocol, cowboy_rest}.
 
-rest_init(Req, _Opts) ->
-  {ok, Req, #'state'{}}.
+rest_init(Req, Opts) ->
+  State = if Opts =:= [] -> #{}; true -> hd(Opts) end, 
+  {ok, Req, State}.
 
-content_types_provided(Req, State) ->
+%% Only POST and GET are allowed as REST
+allowed_methods(Req, State) ->
+  {[<<"POST">>,<<"GET">>], Req, State}.
+
+%% Types that are POST accepted,
+%% %% and it's parsed using handle_post/2
+content_types_accepted(Req, State) ->
   {[
-    {<<"text/html">>, to_html},
-    {<<"application/json">>, to_json},
-    {<<"text/plain">>, to_text}
+    {{<<"application">>, <<"json">>, []},route_handle_json}
   ], Req, State}.
 
-to_html(Req, State) ->
+%% Types that are GET and POST provided
+content_types_provided(Req, State) ->
+  {[
+    {<<"text/html">>, route_to_html}
+  ], Req, State}.
+
+%% Set to false to stop ptogressing.
+resource_exists(Req, State) ->
+  {true, Req, State}.
+
+%% ============================================================================
+
+route_to_html(Req,State) ->
+  {Path,Req2} = cowboy_req:path(Req),
+  {_Peer,Req3} = cowboy_req:peer(Req2),
+  to_html(Path,Req3,State).
+
+to_html(IndexFile, Req, #{ index_file := IndexFile } = State) ->
   Sid = soil_utls:random(),
   ClientTimeout = 5000,
   Req1 = soil_session:set_cookie(Req,<<"TSID">>,Sid),
   Req2 = soil_session:set_cookie(Req1,<<"clientTimeout">>,integer_to_binary(ClientTimeout)),
-  Template = soil_utls:priv_dir() ++ "/app/templates/index.tpl",
+  Template = soil_utls:priv_dir() ++ binary_to_list(IndexFile),
   {ok,_Module} = erlydtl:compile_file(Template,index_dtl),
   {ok,Body} = index_dtl:render([]),
-  {Body, Req2, State}.
+  {Body, Req2, State};
 
-to_json(Req, State) ->
+to_html(<<"/">>, Req, State) ->
+  {ok, Req2} = cowboy_req:reply(302,
+    [{<<"Location">>, <<"/cards/app/index.html">>}],<<>>,Req),
+  {halt, Req2, State};
+
+to_html(_, Req, State) ->
+  {<<"404">>, Req, State}.
+
+%% ============================================================================
+
+route_handle_json(Req,State) ->
+  ok.
+
+handle_html(Req, State) ->
+  {<<"<html>html</html>">>, Req, State}.
+
+handle_json(Req, State) ->
   Body = <<"{\"rest\": \"Hello World!\"}">>,
   {Body, Req, State}.
 
-to_text(Req, State) ->
+handle_text(Req, State) ->
   {<<"REST Hello World as text!">>, Req, State}.
 
 rest_terminate(_Req,_State) ->

@@ -39,10 +39,12 @@ start(_StartType, _StartArgs) ->
   ensure_started(norm),
    
   PrivDir = soil_utls:priv_dir(),
+  Index = soil_utls:get_env(index_file),
   Dispatch = cowboy_router:compile([
     {'_', [
-      {"/cards/[...]", cowboy_static, {dir,PrivDir ++ "/cards",[{mimetypes, cow_mimetypes, all}]}}
-      ,{"/", soil_rest, []}
+      {Index, soil_rest, [#{index_file => Index}]}
+      ,{"/cards/[...]", cowboy_static, {dir,PrivDir ++ "/cards",[{mimetypes, cow_mimetypes, all}]}}
+      ,{"/[...]", soil_rest, []}
       ,{"/bullet/[...]",bullet_handler,[{handler,soil_bullet_handler}]}
     ]}
   ]),
