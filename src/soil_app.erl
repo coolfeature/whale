@@ -44,8 +44,8 @@ start(_StartType, _StartArgs) ->
     {'_', [
       {Index, soil_rest, [#{index_file => Index}]}
       ,{"/cards/[...]", cowboy_static, {dir,PrivDir ++ "/cards",[{mimetypes, cow_mimetypes, all}]}}
-      ,{"/[...]", soil_rest, []}
       ,{"/bullet/[...]",bullet_handler,[{handler,soil_bullet_handler}]}
+      ,{"/[...]", soil_rest, []}
     ]}
   ]),
   cowboy:start_http(http_listener, 100,

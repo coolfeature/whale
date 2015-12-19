@@ -16,6 +16,7 @@
 %%
 
 init(_Transport, Req, _Opts, Active) ->
+  io:fwrite("WEBSOCKET INIT ~p~n",[Active]),
   {[Sid],Req1} = cowboy_req:path_info(Req),
   %% ensure registered
   gproc:reg(?GPROC_KEY(Sid),[{map,#{ active => Active }}]),
