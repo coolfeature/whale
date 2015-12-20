@@ -57,13 +57,11 @@ route_to_html(Req,State) ->
 
 to_html(IndexFile, Req, #{ index_file := IndexFile } = State) ->
   Sid = soil_utls:random(),
-  ClientTimeout = 5000,
   Req1 = soil_session:set_cookie(Req,<<"TSID">>,Sid),
-  Req2 = soil_session:set_cookie(Req1,<<"clientTimeout">>,integer_to_binary(ClientTimeout)),
   Template = soil_utls:priv_dir() ++ binary_to_list(IndexFile),
   {ok,_Module} = erlydtl:compile_file(Template,index_dtl),
   {ok,Body} = index_dtl:render([]),
-  {Body, Req2, State};
+  {Body, Req1, State};
 
 to_html(<<"/">>, Req, State) ->
   {ok, Req2} = cowboy_req:reply(302,

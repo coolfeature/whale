@@ -2,42 +2,54 @@
 
 -export([
   handle/3
-  ,reply/2
+  ,reply/4
   ,sessions/0
-  ,get_cbid/1
+  ,get_qid/1
 ]).
 
 %% ------------------------------------------------------------------
 
-handle(<<"register">>,JsonMap,Key) ->
+handle(Action,JsonMap,Key) when Action =:= <<"login">> ->
+  io:fwrite("Login: ~p ~p ~n",[JsonMap,Key]),
+  User = maps:get(<<"body">>,JsonMap),
+  Email = maps:get(<<"email">>,User),
+  Find = norm:find(<<"user">>,#{ <<"where">> => [{ <<"email">>,'=',Email}] }),
+  R = #{ <<"authenticated">> => false },
+  Reply = if Find =:= [] -> R;
+    true -> 
+      maps:update(<<"authenticated">>,true,R)
+    end,
+  reply(Action,Reply,JsonMap,Key);
+  
+handle(Action,JsonMap,Key) when Action =:= <<"register">> ->
+  io:fwrite("Register: ~p ~p ~n",[JsonMap,Key]),
   Body = maps:get(<<"body">>,JsonMap),
   User = maps:get(<<"user">>,Body),
-  UserNoVerify = maps:remove(<<"password_verify">>,User),
-  UserSave = maps:put(<<"__meta__">>,#{ <<"name">> => <<"user">>},UserNoVerify),
-  {ok,UserId} = norm:save(UserSave),
-  Address = maps:get(<<"address">>,Body),
-  AddressSave = maps:put(<<"__meta__">>,#{ <<"name">> => <<"address">>},Address),
-  {ok,AddressId} = norm:save(AddressSave), 
   Customer = maps:get(<<"customer">>,Body),
-  CustomerAddMeta = maps:put(<<"__meta__">>,#{ <<"name">> => <<"customer">>},Customer),
-  CustomerAddUserId = maps:put(<<"user_id">>,UserId,CustomerAddMeta),
-  CustomerAddUserAddressId = maps:put(<<"address_id">>,AddressId,CustomerAddUserId),
-  {ok,CustomerId} = norm:save(CustomerAddUserAddressId), 
-  io:fwrite("Norm save: ~p ~p ~p ~n",[UserId,AddressId,CustomerId]),
-  Reply = #{ <<"header">> => #{ <<"type">> => <<"register">>, <<"cbid">> => get_cbid(JsonMap) }, <<"body">> => <<"ok">> },
-  reply(Key,Reply);
+  R = #{ <<"registered">> => false },
+  Reply = try
+    {ok,start} = norm_pgsql:transaction(),
+    {ok,UserId} = norm:save(User),
+    CustomerAddUserId = maps:put(<<"user_id">>,UserId,Customer),
+    {ok,CustomerId} = norm:save(CustomerAddUserId), 
+    {ok,commit} = norm_pgsql:commit(),
+    io:fwrite("Norm save: ~p ~p ~n",[UserId,CustomerId]),
+    maps:update(<<"registered">>,true,R)
+  catch _Error:Reason ->
+    norm_pgsql:rollback(),
+    io:fwrite("Rolling back: ~p ~n",[Reason]),R
+  end,
+  reply(Action,Reply,JsonMap,Key);
  
-handle(<<"view">>,JsonMap,Key) ->
-  Reply = #{
-    header => #{ <<"type">> => <<"view">>, <<"cbid">> => get_cbid(JsonMap) }
-    ,body => sessions()
-  },
-  reply(Key,Reply);
 handle(undefined,JsonMap,_Sid) ->
   io:fwrite("UNDEFINED ACTION: ~p~n",[JsonMap]),
   ok.
 
-reply(Key,Reply) ->
+reply(Action,Body,JsonMap,Key) ->
+  Reply = #{ 
+    <<"header">> => #{ <<"type">> => Action, <<"qid">> => get_qid(JsonMap) }
+    , <<"body">> => Body 
+  },
   gproc:send(Key,Reply).
  
 %% ------------------------------------------------------------------
@@ -50,8 +62,8 @@ sessions() ->
     Acc ++ [[{sid,Sid},{properties,gproc:get_attribute(Key,map)}]]
   end,[],List).
 
-get_cbid(JsonMap) ->
+get_qid(JsonMap) ->
   HeaderMap = maps:get(<<"header">>,JsonMap,#{}),
-  maps:get(<<"cbid">>,HeaderMap,0). 
+  maps:get(<<"qid">>,HeaderMap,0). 
 
 

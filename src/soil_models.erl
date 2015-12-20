@@ -13,19 +13,24 @@ pgsql() ->
         ,<<"date_registered">> => #{ <<"type">> => <<"timestamp">> }
       }
       ,<<"constraints">> => #{
+	%% There may be only ONE pk
         <<"pk">> => #{ <<"fields">> => [<<"id">>] }
+	%% There may be MULTIPLE unique
+        ,<<"unique">> => [
+		#{ <<"fields">> => [<<"email">>] }
+	]
       }
     }
     ,<<"customer">> => #{
       <<"create_rank">> => <<"3">>
       ,<<"fields">> => #{
         <<"id">> => #{ <<"type">> => <<"bigserial">>, <<"null">> => <<"false">> }
-        ,<<"fname">> => #{ <<"type">> => <<"varchar">>, <<"length">> => <<"50">> }
-        ,<<"lname">> => #{ <<"type">> => <<"varchar">>, <<"length">> => <<"50">> }
-        ,<<"gender">> => #{ <<"type">> => <<"varchar">>, <<"length">> => <<"1">> }
-        ,<<"dob">> => #{ <<"type">> => <<"date">> }
+        ,<<"fname">> => #{ <<"type">> => <<"varchar">>, <<"length">> => <<"50">>, <<"null">> => <<"false">> }
+        ,<<"lname">> => #{ <<"type">> => <<"varchar">>, <<"length">> => <<"50">>, <<"null">> => <<"false">> }
+        ,<<"gender">> => #{ <<"type">> => <<"varchar">>, <<"length">> => <<"1">>, <<"null">> => <<"false">> }
+        ,<<"promo">> => #{ <<"type">> => <<"varchar">>, <<"length">> => <<"1">>, <<"null">> => <<"false">> }
         ,<<"user_id">> => #{ <<"type">> => <<"bigint">>, <<"null">> => <<"false">> }
-        ,<<"address_id">> => #{ <<"type">> => <<"bigint">>, <<"null">> => <<"false">> }
+        ,<<"address_id">> => #{ <<"type">> => <<"bigint">>, <<"null">> => <<"true">> }
       }
       ,<<"constraints">> => #{
         <<"pk">> => #{ <<"name">> => <<"pk_customer">>, <<"fields">> => [<<"id">>] }
