@@ -10,7 +10,7 @@ pgsql() ->
         <<"id">> => #{  <<"type">> => <<"bigserial">>, <<"null">> => <<"false">> }
         ,<<"email">> => #{ <<"type">> => <<"varchar">>, <<"length">> => <<"50">> }
         ,<<"password">> => #{ <<"type">> => <<"varchar">>, <<"length">> => <<"50">> }
-        ,<<"date_registered">> => #{ <<"type">> => <<"timestamp">> }
+        ,<<"date_registered">> => #{ <<"type">> => <<"timestamp">>, <<"default">> => <<"current_timestamp">> }
       }
       ,<<"constraints">> => #{
 	%% There may be only ONE pk

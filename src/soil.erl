@@ -14,10 +14,17 @@ handle(Action,JsonMap,Key) when Action =:= <<"login">> ->
   User = maps:get(<<"body">>,JsonMap),
   Email = maps:get(<<"email">>,User),
   Find = norm:find(<<"user">>,#{ <<"where">> => [{ <<"email">>,'=',Email}] }),
+  io:fwrite("~p ~n",[Find]),
   R = #{ <<"authenticated">> => false },
   Reply = if Find =:= [] -> R;
-    true -> 
-      maps:update(<<"authenticated">>,true,R)
+    true ->
+      [Entry] = Find,
+      JsonPass = maps:get(<<"password">>,User), 
+      DbPass = maps:get(<<"password">>,Entry),
+      io:fwrite("~p = ~p ~n",[JsonPass,DbPass]),
+      if JsonPass =:= DbPass -> 
+        maps:update(<<"authenticated">>,true,R);
+      true -> R end
     end,
   reply(Action,Reply,JsonMap,Key);
   
