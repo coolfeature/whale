@@ -60,8 +60,14 @@ to_html(IndexFile, Req, #{ index_file := IndexFile } = State) ->
   Req1 = soil_session:set_cookie(Req,<<"TSID">>,Sid),
   Template = soil_utls:priv_dir() ++ binary_to_list(IndexFile),
   {ok,_Module} = erlydtl:compile_file(Template,index_dtl),
-  {ok,Body} = index_dtl:render([]),
-  {Body, Req1, State};
+  {Peer,Req2} = cowboy_req:peer(Req1),
+  case soil_session:allow_peer(Peer) of
+    ok ->
+      {ok,Body} = index_dtl:render([]);
+    stop ->
+      {ok,Body} = index_dtl:render([])
+  end,
+  {Body, Req2, State};
 
 to_html(<<"/">>, Req, State) ->
   {ok, Req2} = cowboy_req:reply(302,
@@ -73,7 +79,7 @@ to_html(_, Req, State) ->
 
 %% ============================================================================
 
-route_handle_json(Req,State) ->
+route_handle_json(_Req,_State) ->
   ok.
 
 handle_html(Req, State) ->

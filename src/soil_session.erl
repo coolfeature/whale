@@ -4,6 +4,7 @@
   get_cookie/2
   ,set_cookie/3
   ,drop_session/1
+  ,allow_peer/1
 ]).
 
 get_cookie(Req,Name) ->
@@ -16,3 +17,9 @@ set_cookie(Req,Name,Value) ->
  
 drop_session(Req) ->
   cowboy_req:set_resp_header(<<"Set-Cookie">>,<<"COOKIE=deleted; expires=Thu, 01-Jan-1970 00:00:01 GMT; path=/">>, Req).
+
+allow_peer(_Peer) -> 
+  ok.
+
+
+

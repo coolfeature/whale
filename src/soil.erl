@@ -11,6 +11,7 @@
 
 handle(Action,JsonMap,Key) when Action =:= <<"login">> ->
   io:fwrite("Login: ~p ~p ~n",[JsonMap,Key]),
+  timer:sleep(5000),
   User = maps:get(<<"body">>,JsonMap),
   Email = maps:get(<<"email">>,User),
   Find = norm:find(<<"user">>,#{ <<"where">> => [{ <<"email">>,'=',Email}] }),
@@ -21,15 +22,27 @@ handle(Action,JsonMap,Key) when Action =:= <<"login">> ->
       [Entry] = Find,
       JsonPass = maps:get(<<"password">>,User), 
       DbPass = maps:get(<<"password">>,Entry),
-      io:fwrite("~p = ~p ~n",[JsonPass,DbPass]),
-      if JsonPass =:= DbPass -> 
-        maps:update(<<"authenticated">>,true,R);
+      if JsonPass =:= DbPass ->
+        R2 = maps:update(<<"authenticated">>,true,R),
+	UserId = maps:get(<<"id">>,Entry),
+	[Customer] = norm:find(<<"customer">>,#{ <<"where">> => [{ <<"user_id">>,'=',UserId}] }),
+	Fname = maps:get(<<"fname">>,Customer),
+	Lname = maps:get(<<"lname">>,Customer),
+	Name = #{ <<"fname">> => Fname, <<"lname">> => Lname },
+	R3 = maps:put(<<"customer">>,Name,R2),
+	R4 = maps:put(<<"email">>,Email,R3), 
+	Cid = maps:get(<<"id">>,Customer),
+	JwtPayload = #{ <<"cid">> => Cid },
+	Jwt = soil_utls:get_env(jwt),
+        Token = jwt:encode(JwtPayload,Jwt),
+	maps:put(<<"token">>,Token,R4);
       true -> R end
     end,
   reply(Action,Reply,JsonMap,Key);
   
 handle(Action,JsonMap,Key) when Action =:= <<"register">> ->
   io:fwrite("Register: ~p ~p ~n",[JsonMap,Key]),
+  timer:sleep(5000),
   Body = maps:get(<<"body">>,JsonMap),
   User = maps:get(<<"user">>,Body),
   Customer = maps:get(<<"customer">>,Body),
