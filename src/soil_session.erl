@@ -5,6 +5,7 @@
   ,set_cookie/3
   ,drop_session/1
   ,allow_peer/1
+  ,is_authorized/1
 ]).
 
 get_cookie(Req,Name) ->
@@ -21,5 +22,17 @@ drop_session(Req) ->
 allow_peer(_Peer) -> 
   ok.
 
-
-
+is_authorized(JsonMap) ->
+  BodyMap = maps:get(<<"body">>,JsonMap,<<"">>),
+  Token = maps:get(<<"token">>,BodyMap,<<"">>),
+  case Token of
+    <<"">> -> {error,<<"Token missing">>};
+    T when is_binary(T) -> 
+      Key = soil_utls:get_env(jwt), 
+      case jwt:decode(Token,Key) of 
+        error -> {error, <<"Tampered Token">>};
+        Payload -> {ok,Payload}
+      end;
+    _ ->
+      {error,<<"Unexpected value">>}
+  end.

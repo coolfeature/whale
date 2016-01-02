@@ -14,7 +14,7 @@
 ]).
 
 random() ->
-  {N1,N2,N3} = erlang:now(),
+  {N1,N2,N3} = os:timestamp(),
   N1b = integer_to_binary(N1),
   N2b = integer_to_binary(N2),
   N3b = integer_to_binary(N3),
@@ -36,6 +36,12 @@ get_value(Key, Opts, Default) ->
     _ -> Default
   end.
 
+get_env(aws_s3) ->
+  S3AKID = list_to_binary(os:getenv("DROOK_S3_ACCESS_KEY_ID")),
+  S3SK = list_to_binary(os:getenv("DROOK_S3_SECRET_KEY")),
+  if S3AKID /= false andalso S3SK /= false ->
+    {ok,#{ <<"access">> => S3AKID, <<"secret">> => S3SK }};
+  true -> undefined end;
 get_env(Key) ->
   case application:get_env(soil, Key) of
     {ok,Val} -> Val;

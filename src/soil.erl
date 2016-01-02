@@ -8,7 +8,9 @@
 ]).
 
 %% ------------------------------------------------------------------
-
+%%
+%%  Signs user in
+%%
 handle(Action,JsonMap,Key) when Action =:= <<"login">> ->
   io:fwrite("Login: ~p ~p ~n",[JsonMap,Key]),
   timer:sleep(5000),
@@ -39,10 +41,14 @@ handle(Action,JsonMap,Key) when Action =:= <<"login">> ->
       true -> R end
     end,
   reply(Action,Reply,JsonMap,Key);
-  
+
+%%
+%% Registers new users
+%%
+ 
 handle(Action,JsonMap,Key) when Action =:= <<"register">> ->
   io:fwrite("Register: ~p ~p ~n",[JsonMap,Key]),
-  timer:sleep(5000),
+  timer:sleep(2000),
   Body = maps:get(<<"body">>,JsonMap),
   User = maps:get(<<"user">>,Body),
   Customer = maps:get(<<"customer">>,Body),
@@ -61,9 +67,59 @@ handle(Action,JsonMap,Key) when Action =:= <<"register">> ->
   end,
   reply(Action,Reply,JsonMap,Key);
  
+%%
+%% Generates s3 policy
+%%
+handle(Action,JsonMap,Key) when Action =:= <<"s3policy">> ->
+  Reply = case soil_session:is_authorized(JsonMap) of
+    {ok,_Decoded} ->
+      % 1) Create Policy map
+      Now = os:timestamp() 
+      {{Year,Month,Day},{Hour,Minute,Second}} = calendar:now_to_universal_time(Now),
+      ExpirationTime = norm_utls:format_time({_,{Hour,Minute,Second}},'iso8601'),
+      ExpirationDate = norm_utls:format_date({{Year,Month,Day},_},'iso8601'),
+      Expiration = erlang:iolist_to_binary([ExpirationDate,<<"T">>,ExpirationTime,<<"Z">>]),
+      PolicyMap = #{
+	<<"expiration">> => <<"2020-01-01T00:00:00Z">>
+	,<<"conditions">> => [
+	  #{ <<"bucket">> => <<"uploads.drook.net/">> }
+          ,[ <<"start-with">>, <<"$key">>, <<"uploads/">> ]
+	  ,#{ <<"acl">> => <<"private">> }
+	  ,#{ <<"success_action_redirect">> => <<"http://drook.net/">> }
+          ,[ <<"start-with">>, <<"$Content-Type">>, <<"">> ]
+          ,[ <<"content-length-range">>, 0, 1048576 ]
+	]
+      },
+      % 2) Base64 encode Policy and generate signature
+      PolicyBin = jsx:encode(PolicyMap), 
+      PolicyBase64 = base64url:encode(PolicyBin),
+      case soil_utls:get_env(aws_s3) of
+        {ok,AwsMap} ->
+          Secret = maps:get(<<"secret">>,AwsMap),
+          Access = maps:get(<<"access">>,AwsMap),
+          SignatureRaw = crypto:hmac(sha, Secret, PolicyBase64),
+          SignatureBase64 = base64url:encode(SignatureRaw),
+          #{  
+            <<"result">> => ok
+            ,<<"AWSAccessKeyId">> => Access
+            ,<<"policy">> => PolicyBase64
+            ,<<"signature">> => SignatureBase64
+          };
+        undefined -> 
+          #{ <<"unauthorised">> => <<"Unable to proceed">> }
+      end;
+    {error,Msg} -> 
+      #{ <<"unauthorised">> => Msg }  
+  end,
+  reply(Action,Reply,JsonMap,Key);
+
 handle(undefined,JsonMap,_Sid) ->
   io:fwrite("UNDEFINED ACTION: ~p~n",[JsonMap]),
   ok.
+
+%% ============================================================================
+%%
+%%
 
 reply(Action,Body,JsonMap,Key) ->
   Reply = #{ 
