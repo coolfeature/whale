@@ -74,34 +74,39 @@ handle(Action,JsonMap,Key) when Action =:= <<"s3policy">> ->
   Reply = case soil_session:is_authorized(JsonMap) of
     {ok,_Decoded} ->
       % 1) Create Policy map
-      Now = os:timestamp() 
-      {{Year,Month,Day},{Hour,Minute,Second}} = calendar:now_to_universal_time(Now),
-      ExpirationTime = norm_utls:format_time({_,{Hour,Minute,Second}},'iso8601'),
-      ExpirationDate = norm_utls:format_date({{Year,Month,Day},_},'iso8601'),
+      NowSecs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
+      Add15Mins = NowSecs + (15 * 60),
+      DateTime = calendar:gregorian_seconds_to_datetime(Add15Mins),
+      ExpirationTime = norm_utls:format_time(DateTime,'iso8601'),
+      ExpirationDate = norm_utls:format_date(DateTime,'iso8601'),
       Expiration = erlang:iolist_to_binary([ExpirationDate,<<"T">>,ExpirationTime,<<"Z">>]),
       PolicyMap = #{
-	<<"expiration">> => <<"2020-01-01T00:00:00Z">>
+	<<"expiration">> => Expiration
 	,<<"conditions">> => [
-	  #{ <<"bucket">> => <<"uploads.drook.net/">> }
-          ,[ <<"start-with">>, <<"$key">>, <<"uploads/">> ]
+	  #{ <<"bucket">> => <<"drook-uploads">> }
+          ,[ <<"starts-with">>, <<"$key">>, <<"uploads/">> ]
 	  ,#{ <<"acl">> => <<"private">> }
-	  ,#{ <<"success_action_redirect">> => <<"http://drook.net/">> }
-          ,[ <<"start-with">>, <<"$Content-Type">>, <<"">> ]
+	  %%,#{ <<"success_action_redirect">> => <<"http://drook.net">> }
+          ,[ <<"starts-with">>, <<"$Content-Type">>, <<"">> ]
           ,[ <<"content-length-range">>, 0, 1048576 ]
 	]
       },
       % 2) Base64 encode Policy and generate signature
-      PolicyBin = jsx:encode(PolicyMap), 
-      PolicyBase64 = base64url:encode(PolicyBin),
+      PolicyBin = jsx:encode(PolicyMap),
+      io:fwrite("Policy Document ~p ~n",[PolicyBin]), 
+      PolicyBase64 = base64:encode(PolicyBin),
+      io:fwrite("PolicyBase64 ~p ~n",[PolicyBase64]),
       case soil_utls:get_env(aws_s3) of
         {ok,AwsMap} ->
           Secret = maps:get(<<"secret">>,AwsMap),
           Access = maps:get(<<"access">>,AwsMap),
+	  io:fwrite("~p ~p ~n",[Access,Secret]),
           SignatureRaw = crypto:hmac(sha, Secret, PolicyBase64),
-          SignatureBase64 = base64url:encode(SignatureRaw),
+          SignatureBase64 = base64:encode(SignatureRaw),
+	  S3UploadsUrl = soil_utls:get_env(s3_uploads_url),
           #{  
-            <<"result">> => ok
-            ,<<"AWSAccessKeyId">> => Access
+            <<"url">> => S3UploadsUrl
+            ,<<"access">> => Access
             ,<<"policy">> => PolicyBase64
             ,<<"signature">> => SignatureBase64
           };
