@@ -93,14 +93,11 @@ handle(Action,JsonMap,Key) when Action =:= <<"s3policy">> ->
       },
       % 2) Base64 encode Policy and generate signature
       PolicyBin = jsx:encode(PolicyMap),
-      io:fwrite("Policy Document ~p ~n",[PolicyBin]), 
       PolicyBase64 = base64:encode(PolicyBin),
-      io:fwrite("PolicyBase64 ~p ~n",[PolicyBase64]),
       case soil_utls:get_env(aws_s3) of
         {ok,AwsMap} ->
           Secret = maps:get(<<"secret">>,AwsMap),
           Access = maps:get(<<"access">>,AwsMap),
-	  io:fwrite("~p ~p ~n",[Access,Secret]),
           SignatureRaw = crypto:hmac(sha, Secret, PolicyBase64),
           SignatureBase64 = base64:encode(SignatureRaw),
 	  S3UploadsUrl = soil_utls:get_env(s3_uploads_url),
