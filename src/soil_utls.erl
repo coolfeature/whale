@@ -73,7 +73,7 @@ format_with_padding(Number, Padding) ->
 datetime_to_timestamp(DateTime) ->
   Seconds = calendar:datetime_to_gregorian_seconds(DateTime) - 62167219200,
   {Seconds div 1000000, Seconds rem 1000000, 0}.
-datetime_to_timestamp(DateTime,return_binary) ->
+datetime_to_timestamp(DateTime,return_integer) ->
   {S,SS,_O} = datetime_to_timestamp(DateTime),
   S + SS;
 datetime_to_timestamp(DateTime,return_binary) ->
