@@ -38,13 +38,19 @@ handle(Action,JsonMap,Key) when Action =:= <<"login">> ->
 	Jwt = soil_utls:get_env(jwt),
         Token = jwt:encode(JwtPayload,Jwt),
 	R5 = maps:put(<<"token">>,Token,R4),
-	R6 = case soil_session:s3_policy() of
+	%% ====
+	NowSecs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
+        Add3Hrs = NowSecs + (3 * 60 * 60),
+        DateTimeExpires = calendar:gregorian_seconds_to_datetime(Add3Hrs),
+        %% 01-Jan-1970 00:00:01 GMT 
+	R6 = case soil_session:s3_policy(Customer,DateTimeExpires) of
 	  {ok,S3Map} -> maps:put(<<"s3">>,S3Map,R5);
 	  {error,S3ErrorMap} -> 
 	    soil_log:log(S3ErrorMap),
 	    maps:put(<<"s3">>,S3ErrorMap,R5)
-        end,  
-	R6;
+        end,
+	Expiry = soil_utls:datetime_to_timestamp(DateTimeExpires,return_integer), 
+        maps:put(<<"expiry">>,Expiry,R6);
       true -> R end
     end,
   reply(Action,Reply,JsonMap,Key);

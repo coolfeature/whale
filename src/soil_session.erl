@@ -6,7 +6,7 @@
   ,drop_session/1
   ,allow_peer/1
   ,is_authorized/1
-  ,s3_policy/0
+  ,s3_policy/2
 ]).
 
 get_cookie(Req,Name) ->
@@ -39,44 +39,50 @@ is_authorized(JsonMap) ->
   end.
 
 
-s3_policy() ->
-  % 1) Create Policy map
-  NowSecs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
-  Add15Mins = NowSecs + (15 * 60),
-  DateTime = calendar:gregorian_seconds_to_datetime(Add15Mins),
-  ExpirationTime = norm_utls:format_time(DateTime,'iso8601'),
-  ExpirationDate = norm_utls:format_date(DateTime,'iso8601'),
-  Expiration = erlang:iolist_to_binary([ExpirationDate,<<"T">>,ExpirationTime,<<"Z">>]),
-  PolicyMap = #{
-    <<"expiration">> => Expiration
-    ,<<"conditions">> => [
-      #{ <<"bucket">> => <<"drook-uploads">> }
-      ,[ <<"starts-with">>, <<"$key">>, <<"uploads/">> ]
-      ,#{ <<"acl">> => <<"private">> }
-      %%,#{ <<"success_action_redirect">> => <<"http://drook.net">> }
-      ,[ <<"starts-with">>, <<"$Content-Type">>, <<"">> ]
-      ,[ <<"content-length-range">>, 0, 1048576 ]
-    ]
-  },
-  % 2) Base64 encode Policy and generate signature
-  PolicyBin = jsx:encode(PolicyMap),
-  PolicyBase64 = base64:encode(PolicyBin),
+s3_policy(Customer,DateTimeExpires) ->
   case soil_utls:get_env(aws_s3) of
     {ok,AwsMap} ->
-      Secret = maps:get(<<"secret">>,AwsMap),
-      Access = maps:get(<<"access">>,AwsMap),
-      SignatureRaw = crypto:hmac(sha, Secret, PolicyBase64),
-      SignatureBase64 = base64:encode(SignatureRaw),
-      S3UploadsUrl = soil_utls:get_env(s3_uploads_url),
-      ResultMap = #{  
-        <<"url">> => S3UploadsUrl
-        ,<<"access">> => Access
-        ,<<"policy">> => PolicyBase64
-        ,<<"signature">> => SignatureBase64
-      },
-      {ok,ResultMap};
+      case maps:get(<<"user_id">>,Customer) of
+        UserId when is_integer(UserId) ->
+	  PaddedUserId = soil_utls:format_with_padding(UserId,10),
+	  BuketKey = iolist_to_binary([ PaddedUserId,<<"/">> ]),
+          % 1) Create Policy map
+          ExpirationTime = norm_utls:format_time(DateTimeExpires,'iso8601'),
+          ExpirationDate = norm_utls:format_date(DateTimeExpires,'iso8601'),
+          Expiration = iolist_to_binary([ExpirationDate,<<"T">>,ExpirationTime,<<"Z">>]),
+          PolicyMap = #{
+            <<"expiration">> => Expiration
+            ,<<"conditions">> => [
+              #{ <<"bucket">> => <<"drook-users">> }
+              ,[ <<"starts-with">>, <<"$key">>, BuketKey ]
+              ,#{ <<"acl">> => <<"private">> }
+              %%,#{ <<"success_action_redirect">> => <<"http://drook.net">> }
+              ,[ <<"starts-with">>, <<"$Content-Type">>, <<"">> ]
+              ,[ <<"content-length-range">>, 0, 1048576 ]
+            ]
+          },
+          % 2) Base64 encode Policy and generate signature
+          PolicyBin = jsx:encode(PolicyMap),
+          PolicyBase64 = base64:encode(PolicyBin),
+          Secret = maps:get(<<"secret">>,AwsMap),
+          Access = maps:get(<<"access">>,AwsMap),
+          SignatureRaw = crypto:hmac(sha, Secret, PolicyBase64),
+          SignatureBase64 = base64:encode(SignatureRaw),
+          S3UploadsUrl = soil_utls:get_env(s3_uploads_url),
+          ResultMap = #{  
+            <<"url">> => S3UploadsUrl
+            ,<<"access">> => Access
+            ,<<"policy">> => PolicyBase64
+            ,<<"signature">> => SignatureBase64
+	    ,<<"key">> => BuketKey
+          },
+          {ok,ResultMap};
+        _Error ->
+          ErrorMap = #{ <<"unauthorised">> => <<"Unable to progress">> },
+          {error,ErrorMap}
+      end;
     undefined -> 
       ErrorMap = #{ <<"unauthorised">> => <<"Unable to proceed">> },
-      {ok,ErrorMap}
+      {error,ErrorMap}
   end.
 

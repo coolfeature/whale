@@ -11,6 +11,10 @@
   ,get_env/2
   
   ,random/0
+
+  ,format_with_padding/2
+  ,datetime_to_timestamp/1
+  ,datetime_to_timestamp/2
 ]).
 
 random() ->
@@ -50,4 +54,29 @@ get_env(Key) ->
   
 get_env(Section,Key) ->
   SectionConf = get_env(Section),
-  get_value(Key,SectionConf,undefined). 
+  get_value(Key,SectionConf,undefined).
+
+%%------------------------------------------------------------------------------
+%% @doc Format an integer with a padding of zeroes
+%% @end
+%%------------------------------------------------------------------------------
+-spec format_with_padding(Number :: integer(),Padding :: integer()) -> iodata().
+
+format_with_padding(Number, Padding) when Number < 0 ->
+  [$- | format_with_padding(-Number, Padding - 1)];
+format_with_padding(Number, Padding) ->
+  NumberStr = integer_to_list(Number),
+  ZeroesNeeded = max(Padding - length(NumberStr), 0),
+  String = [lists:duplicate(ZeroesNeeded, $0), NumberStr],
+  iolist_to_binary(String).
+
+datetime_to_timestamp(DateTime) ->
+  Seconds = calendar:datetime_to_gregorian_seconds(DateTime) - 62167219200,
+  {Seconds div 1000000, Seconds rem 1000000, 0}.
+datetime_to_timestamp(DateTime,return_binary) ->
+  {S,SS,_O} = datetime_to_timestamp(DateTime),
+  S + SS;
+datetime_to_timestamp(DateTime,return_binary) ->
+  {S,SS,_O} = datetime_to_timestamp(DateTime),
+  list_to_binary(integer_to_list(S) ++ integer_to_list(SS)).
+
