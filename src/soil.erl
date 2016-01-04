@@ -37,7 +37,14 @@ handle(Action,JsonMap,Key) when Action =:= <<"login">> ->
 	JwtPayload = #{ <<"cid">> => Cid },
 	Jwt = soil_utls:get_env(jwt),
         Token = jwt:encode(JwtPayload,Jwt),
-	maps:put(<<"token">>,Token,R4);
+	R5 = maps:put(<<"token">>,Token,R4),
+	R6 = case soil_session:s3_policy() of
+	  {ok,S3Map} -> maps:put(<<"s3">>,S3Map,R5);
+	  {error,S3ErrorMap} -> 
+	    soil_log:log(S3ErrorMap),
+	    maps:put(<<"s3">>,S3ErrorMap,R5)
+        end,  
+	R6;
       true -> R end
     end,
   reply(Action,Reply,JsonMap,Key);
@@ -72,44 +79,7 @@ handle(Action,JsonMap,Key) when Action =:= <<"register">> ->
 %%
 handle(Action,JsonMap,Key) when Action =:= <<"s3policy">> ->
   Reply = case soil_session:is_authorized(JsonMap) of
-    {ok,_Decoded} ->
-      % 1) Create Policy map
-      NowSecs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
-      Add15Mins = NowSecs + (15 * 60),
-      DateTime = calendar:gregorian_seconds_to_datetime(Add15Mins),
-      ExpirationTime = norm_utls:format_time(DateTime,'iso8601'),
-      ExpirationDate = norm_utls:format_date(DateTime,'iso8601'),
-      Expiration = erlang:iolist_to_binary([ExpirationDate,<<"T">>,ExpirationTime,<<"Z">>]),
-      PolicyMap = #{
-	<<"expiration">> => Expiration
-	,<<"conditions">> => [
-	  #{ <<"bucket">> => <<"drook-uploads">> }
-          ,[ <<"starts-with">>, <<"$key">>, <<"uploads/">> ]
-	  ,#{ <<"acl">> => <<"private">> }
-	  %%,#{ <<"success_action_redirect">> => <<"http://drook.net">> }
-          ,[ <<"starts-with">>, <<"$Content-Type">>, <<"">> ]
-          ,[ <<"content-length-range">>, 0, 1048576 ]
-	]
-      },
-      % 2) Base64 encode Policy and generate signature
-      PolicyBin = jsx:encode(PolicyMap),
-      PolicyBase64 = base64:encode(PolicyBin),
-      case soil_utls:get_env(aws_s3) of
-        {ok,AwsMap} ->
-          Secret = maps:get(<<"secret">>,AwsMap),
-          Access = maps:get(<<"access">>,AwsMap),
-          SignatureRaw = crypto:hmac(sha, Secret, PolicyBase64),
-          SignatureBase64 = base64:encode(SignatureRaw),
-	  S3UploadsUrl = soil_utls:get_env(s3_uploads_url),
-          #{  
-            <<"url">> => S3UploadsUrl
-            ,<<"access">> => Access
-            ,<<"policy">> => PolicyBase64
-            ,<<"signature">> => SignatureBase64
-          };
-        undefined -> 
-          #{ <<"unauthorised">> => <<"Unable to proceed">> }
-      end;
+    {ok,_Decoded} -> #{};
     {error,Msg} -> 
       #{ <<"unauthorised">> => Msg }  
   end,
