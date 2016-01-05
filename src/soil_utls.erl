@@ -13,6 +13,8 @@
   ,random/0
 
   ,format_with_padding/2
+
+  ,timestamp/0
   ,datetime_to_timestamp/1
   ,datetime_to_timestamp/2
 ]).
@@ -70,6 +72,9 @@ format_with_padding(Number, Padding) ->
   String = [lists:duplicate(ZeroesNeeded, $0), NumberStr],
   iolist_to_binary(String).
 
+timestamp() ->
+  datetime_to_timestamp(calendar:universal_time(),return_integer).
+
 datetime_to_timestamp(DateTime) ->
   Seconds = calendar:datetime_to_gregorian_seconds(DateTime) - 62167219200,
   {Seconds div 1000000, Seconds rem 1000000, 0}.
@@ -79,4 +84,5 @@ datetime_to_timestamp(DateTime,return_integer) ->
 datetime_to_timestamp(DateTime,return_binary) ->
   {S,SS,_O} = datetime_to_timestamp(DateTime),
   list_to_binary(integer_to_list(S) ++ integer_to_list(SS)).
+
 

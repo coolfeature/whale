@@ -6,8 +6,7 @@
   ,drop_session/1
   ,allow_peer/1
   ,is_authorized/1
-  ,s3_policy/2
-  ,s3/2
+  ,s3/3
   ,s3_canonical_uri/1
 ]).
 
@@ -36,7 +35,9 @@ is_authorized(JsonMap) ->
       Key = soil_utls:get_env(jwt), 
       case jwt:decode(Token,Key) of 
         error -> {error, <<"Tampered Token">>};
-        Payload -> {ok,Payload}
+        Payload -> 
+	  %% @TODO: Expire on timestamp
+	  {ok,Payload}
       end;
     _ ->
       {error,<<"Unexpected value">>}
@@ -45,78 +46,74 @@ is_authorized(JsonMap) ->
 %%
 %% @doc Hands out s3 tickets.
 %%
-s3(Verb,BodyMap) when Verb =:= <<"GET">> ->
-  ResourcePath = maps:get(<<"path">>,BodyMap),
-  Headers = maps:get(<<"headers">>,BodyMap),
+%% -- GET
+s3(Verb,JwtMap,JsonMap) when Verb =:= <<"GET">> ->
+  UserId = maps:get(<<"user_id">>,JwtMap),
+  UserSalted = soil_crypt:s3_user_key(UserId),
+  BuketKey = iolist_to_binary([ UserSalted,<<"/">> ]),
+  Resource = maps:get(<<"path">>,JsonMap),
+  ResourcePath = iolist_to_binary([BuketKey,Resource]),
+  Headers = maps:get(<<"headers">>,JsonMap),
   {CanonicalHeaders,SignedHeaders} = s3_canonical_headers(Headers),
-  <<X:256/big-unsigned-integer>> = crypto:hash(sha256,<<"">>),
-  HashedPayload = list_to_binary(integer_to_list(X, 16)),
-  iolist_to_binary([
+  HashedPayload = soil_crypto:hash(<<"">>),
+  Response = iolist_to_binary([
     Verb,<<"\n">>
     ,s3_canonical_uri(ResourcePath),<<"\n">>
     ,CanonicalHeaders,<<"\n">>
     ,SignedHeaders,<<"\n">>
     ,HashedPayload
-  ]);  
-s3(Verb,_BodyMap) when Verb =:= <<"POST">> ->
-  #{};
-s3(_Verb,_BodyMap) ->
-  #{ <<"unauthorised">> => <<"Invalid">> }.
-
+  ]),
+  {ok,Response};
+%% -- POST  
+s3(Verb,JwtMap,_JsonMap) when Verb =:= <<"POST">> ->
+  %% 01-Jan-1970 00:00:01 GMT 
+  UserId = maps:get(<<"user_id">>,JwtMap),
+  UserSalted = soil_crypto:s3_user_key(UserId),
+  BuketKey = iolist_to_binary([ UserSalted,<<"/">> ]),
+  % 1) Create Policy map
+  NowSecs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
+  Add15Mins = NowSecs + (15 * 60),
+  DateTimeExpires = calendar:gregorian_seconds_to_datetime(Add15Mins),
+  ExpirationTime = norm_utls:format_time(DateTimeExpires,'iso8601'),
+  ExpirationDate = norm_utls:format_date(DateTimeExpires,'iso8601'),
+  Expiration = iolist_to_binary([ExpirationDate,<<"T">>,ExpirationTime,<<"Z">>]),
+  PolicyMap = #{
+    <<"expiration">> => Expiration
+    ,<<"conditions">> => [
+      #{ <<"bucket">> => <<"drook-users">> }
+      ,[ <<"starts-with">>, <<"$key">>, BuketKey ]
+      ,#{ <<"acl">> => <<"private">> }
+      %%,#{ <<"success_action_redirect">> => <<"http://drook.net">> }
+      ,[ <<"starts-with">>, <<"$Content-Type">>, <<"">> ]
+      ,[ <<"content-length-range">>, 0, 1048576 ]
+    ]
+  },
+  %% 2) Base64 encode Policy and generate signature
+  PolicyBin = jsx:encode(PolicyMap),
+  PolicyBase64 = base64:encode(PolicyBin),
+  {ok,AwsMap} = soil_utls:get_env(aws_s3),
+  Secret = maps:get(<<"secret">>,AwsMap),
+  Access = maps:get(<<"access">>,AwsMap),
+  SignatureRaw = crypto:hmac(sha, Secret, PolicyBase64),
+  SignatureBase64 = base64:encode(SignatureRaw),
+  S3UploadsUrl = soil_utls:get_env(s3_uploads_url),
+  ResultMap = #{  
+    <<"url">> => S3UploadsUrl
+    ,<<"access">> => Access
+    ,<<"policy">> => PolicyBase64
+    ,<<"signature">> => SignatureBase64
+    ,<<"key">> => BuketKey
+  },
+  {ok,ResultMap};
+s3(_Verb,_JwtMap,_JsonMap) ->
+  {error,#{ <<"unauthorised">> => <<"Invalid">> }}.
 
 
 s3_canonical_uri(Data) ->
   Data.
 
-s3_canonical_headers(Headers) ->
-  
+s3_canonical_headers(Headers) ->  
   SignedHeaders = Headers,
   {Headers,SignedHeaders}.
 
-s3_policy(Customer,DateTimeExpires) ->
-  case soil_utls:get_env(aws_s3) of
-    {ok,AwsMap} ->
-      case maps:get(<<"user_id">>,Customer) of
-        UserId when is_integer(UserId) ->
-	  PaddedUserId = soil_utls:format_with_padding(UserId,10),
-	  BuketKey = iolist_to_binary([ PaddedUserId,<<"/">> ]),
-          % 1) Create Policy map
-          ExpirationTime = norm_utls:format_time(DateTimeExpires,'iso8601'),
-          ExpirationDate = norm_utls:format_date(DateTimeExpires,'iso8601'),
-          Expiration = iolist_to_binary([ExpirationDate,<<"T">>,ExpirationTime,<<"Z">>]),
-          PolicyMap = #{
-            <<"expiration">> => Expiration
-            ,<<"conditions">> => [
-              #{ <<"bucket">> => <<"drook-users">> }
-              ,[ <<"starts-with">>, <<"$key">>, BuketKey ]
-              ,#{ <<"acl">> => <<"private">> }
-              %%,#{ <<"success_action_redirect">> => <<"http://drook.net">> }
-              ,[ <<"starts-with">>, <<"$Content-Type">>, <<"">> ]
-              ,[ <<"content-length-range">>, 0, 1048576 ]
-            ]
-          },
-          % 2) Base64 encode Policy and generate signature
-          PolicyBin = jsx:encode(PolicyMap),
-          PolicyBase64 = base64:encode(PolicyBin),
-          Secret = maps:get(<<"secret">>,AwsMap),
-          Access = maps:get(<<"access">>,AwsMap),
-          SignatureRaw = crypto:hmac(sha, Secret, PolicyBase64),
-          SignatureBase64 = base64:encode(SignatureRaw),
-          S3UploadsUrl = soil_utls:get_env(s3_uploads_url),
-          ResultMap = #{  
-            <<"url">> => S3UploadsUrl
-            ,<<"access">> => Access
-            ,<<"policy">> => PolicyBase64
-            ,<<"signature">> => SignatureBase64
-	    ,<<"key">> => BuketKey
-          },
-          {ok,ResultMap};
-        _Error ->
-          ErrorMap = #{ <<"unauthorised">> => <<"Unable to progress">> },
-          {error,ErrorMap}
-      end;
-    undefined -> 
-      ErrorMap = #{ <<"unauthorised">> => <<"Unable to proceed">> },
-      {error,ErrorMap}
-  end.
 
