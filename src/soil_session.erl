@@ -7,6 +7,8 @@
   ,allow_peer/1
   ,is_authorized/1
   ,s3_policy/2
+  ,s3/2
+  ,s3_canonical_uri/1
 ]).
 
 get_cookie(Req,Name) ->
@@ -22,7 +24,9 @@ drop_session(Req) ->
 
 allow_peer(_Peer) -> 
   ok.
-
+%%
+%% @doc Checks the integrity of the session
+%%
 is_authorized(JsonMap) ->
   BodyMap = maps:get(<<"body">>,JsonMap,<<"">>),
   Token = maps:get(<<"token">>,BodyMap,<<"">>),
@@ -38,6 +42,36 @@ is_authorized(JsonMap) ->
       {error,<<"Unexpected value">>}
   end.
 
+%%
+%% @doc Hands out s3 tickets.
+%%
+s3(Verb,BodyMap) when Verb =:= <<"GET">> ->
+  ResourcePath = maps:get(<<"path">>,BodyMap),
+  Headers = maps:get(<<"headers">>,BodyMap),
+  {CanonicalHeaders,SignedHeaders} = s3_canonical_headers(Headers),
+  <<X:256/big-unsigned-integer>> = crypto:hash(sha256,<<"">>),
+  HashedPayload = list_to_binary(integer_to_list(X, 16)),
+  iolist_to_binary([
+    Verb,<<"\n">>
+    ,s3_canonical_uri(ResourcePath),<<"\n">>
+    ,CanonicalHeaders,<<"\n">>
+    ,SignedHeaders,<<"\n">>
+    ,HashedPayload
+  ]);  
+s3(Verb,_BodyMap) when Verb =:= <<"POST">> ->
+  #{};
+s3(_Verb,_BodyMap) ->
+  #{ <<"unauthorised">> => <<"Invalid">> }.
+
+
+
+s3_canonical_uri(Data) ->
+  Data.
+
+s3_canonical_headers(Headers) ->
+  
+  SignedHeaders = Headers,
+  {Headers,SignedHeaders}.
 
 s3_policy(Customer,DateTimeExpires) ->
   case soil_utls:get_env(aws_s3) of

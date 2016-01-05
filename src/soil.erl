@@ -81,11 +81,14 @@ handle(Action,JsonMap,Key) when Action =:= <<"register">> ->
   reply(Action,Reply,JsonMap,Key);
  
 %%
-%% Generates s3 policy
+%% Hands out s3 authorizations
 %%
-handle(Action,JsonMap,Key) when Action =:= <<"s3policy">> ->
+handle(Action,JsonMap,Key) when Action =:= <<"s3">> ->
   Reply = case soil_session:is_authorized(JsonMap) of
-    {ok,_Decoded} -> #{};
+    {ok,_Decoded} -> 
+      Body = maps:get(<<"body">>,JsonMap),
+      Verb = maps:get(<<"verb">>,Body),
+      soil_session:s3(Verb);
     {error,Msg} -> 
       #{ <<"unauthorised">> => Msg }  
   end,
