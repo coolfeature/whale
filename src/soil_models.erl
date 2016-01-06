@@ -8,8 +8,8 @@ pgsql() ->
       <<"create_rank">> => <<"1">>
       ,<<"fields">> => #{
         <<"id">> => #{  <<"type">> => <<"bigserial">>, <<"null">> => <<"false">> }
-        ,<<"email">> => #{ <<"type">> => <<"varchar">>, <<"length">> => <<"50">> }
-        ,<<"password">> => #{ <<"type">> => <<"varchar">>, <<"length">> => <<"50">> }
+        ,<<"email">> => #{ <<"type">> => <<"varchar">>, <<"length">> => <<"50">>, <<"null">> => <<"false">> }
+        ,<<"password">> => #{ <<"type">> => <<"varchar">>, <<"length">> => <<"50">>, <<"null">> => <<"false">> }
         ,<<"date_registered">> => #{ <<"type">> => <<"timestamp">>, <<"default">> => <<"current_timestamp">> }
       }
       ,<<"constraints">> => #{
@@ -25,10 +25,12 @@ pgsql() ->
       <<"create_rank">> => <<"3">>
       ,<<"fields">> => #{
         <<"id">> => #{ <<"type">> => <<"bigserial">>, <<"null">> => <<"false">> }
+        ,<<"email">> => #{ <<"type">> => <<"varchar">>, <<"length">> => <<"50">>, <<"null">> => <<"false">> }
         ,<<"fname">> => #{ <<"type">> => <<"varchar">>, <<"length">> => <<"50">>, <<"null">> => <<"false">> }
         ,<<"lname">> => #{ <<"type">> => <<"varchar">>, <<"length">> => <<"50">>, <<"null">> => <<"false">> }
         ,<<"gender">> => #{ <<"type">> => <<"varchar">>, <<"length">> => <<"1">>, <<"null">> => <<"false">> }
         ,<<"promo">> => #{ <<"type">> => <<"varchar">>, <<"length">> => <<"1">>, <<"null">> => <<"false">> }
+        ,<<"home_key">> => #{ <<"type">> => <<"varchar">>, <<"length">> => <<"512">>,  <<"null">> => <<"false">> }
         ,<<"user_id">> => #{ <<"type">> => <<"bigint">>, <<"null">> => <<"false">> }
         ,<<"address_id">> => #{ <<"type">> => <<"bigint">>, <<"null">> => <<"true">> }
       }

@@ -12,11 +12,14 @@
   
   ,random/0
 
-  ,format_with_padding/2
-
   ,timestamp/0
   ,datetime_to_timestamp/1
   ,datetime_to_timestamp/2
+
+  ,pad/3
+  ,hash/1
+  ,setup_s3/0
+  ,home_key_hash/1
 ]).
 
 random() ->
@@ -42,12 +45,17 @@ get_value(Key, Opts, Default) ->
     _ -> Default
   end.
 
-get_env(aws_s3) ->
-  S3AKID = list_to_binary(os:getenv("DROOK_S3_ACCESS_KEY_ID")),
-  S3SK = list_to_binary(os:getenv("DROOK_S3_SECRET_KEY")),
-  if S3AKID /= false andalso S3SK /= false ->
-    {ok,#{ <<"access">> => S3AKID, <<"secret">> => S3SK }};
-  true -> undefined end;
+setup_s3() ->
+  S3AKID = get_env(s3_access),
+  S3SK = get_env(s3_secret),
+  Host = get_env(s3_hostname),
+  Hostname = re:replace(Host,<<"{{ph1}}">>,<<"">>,[{return,binary}]),
+  erlcloud_ec2:configure(S3AKID, S3SK, Hostname).
+
+get_env(s3_secret) ->
+  list_to_binary(os:getenv("DROOK_S3_SECRET_KEY"));
+get_env(s3_access) ->
+  list_to_binary(os:getenv("DROOK_S3_ACCESS_KEY_ID"));
 get_env(Key) ->
   case application:get_env(soil, Key) of
     {ok,Val} -> Val;
@@ -58,19 +66,6 @@ get_env(Section,Key) ->
   SectionConf = get_env(Section),
   get_value(Key,SectionConf,undefined).
 
-%%------------------------------------------------------------------------------
-%% @doc Format an integer with a padding of zeroes
-%% @end
-%%------------------------------------------------------------------------------
--spec format_with_padding(Number :: integer(),Padding :: integer()) -> iodata().
-
-format_with_padding(Number, Padding) when Number < 0 ->
-  [$- | format_with_padding(-Number, Padding - 1)];
-format_with_padding(Number, Padding) ->
-  NumberStr = integer_to_list(Number),
-  ZeroesNeeded = max(Padding - length(NumberStr), 0),
-  String = [lists:duplicate(ZeroesNeeded, $0), NumberStr],
-  iolist_to_binary(String).
 
 timestamp() ->
   datetime_to_timestamp(calendar:universal_time(),return_integer).
@@ -84,5 +79,26 @@ datetime_to_timestamp(DateTime,return_integer) ->
 datetime_to_timestamp(DateTime,return_binary) ->
   {S,SS,_O} = datetime_to_timestamp(DateTime),
   list_to_binary(integer_to_list(S) ++ integer_to_list(SS)).
+
+%%------------------------------------------------------------------------------
+%% @doc Format an integer with a padding of zeroes
+%% @end
+%%------------------------------------------------------------------------------
+-spec pad(Number :: integer(),Padding :: integer(),Char :: integer()) -> iodata().
+
+pad(Number, Padding, Char) when Number < 0 ->
+  [$- | pad(-Number, Padding - 1, Char)];
+pad(Number, Padding, Char) ->
+  NumberStr = integer_to_list(Number),
+  ZeroesNeeded = max(Padding - length(NumberStr), 0),
+  String = [lists:duplicate(ZeroesNeeded, Char), NumberStr],
+  iolist_to_binary(String).
+
+hash(Msg) ->
+  <<X:256/big-unsigned-integer>> = crypto:hash(sha256,Msg),
+  list_to_binary(integer_to_list(X, 16)).
+
+home_key_hash(UserId) ->
+  base64url:encode(crypto:hash(sha256,pad(UserId,10,$0))).
 
 

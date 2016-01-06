@@ -3,7 +3,7 @@
 -behaviour(application).
 
 %% Application callbacks
--export([start/2, stop/1]).
+-export([start/2, stop/1, ensure_started/1]).
 
 %% ===================================================================
 %% Application callbacks
@@ -31,10 +31,14 @@ start(_StartType, _StartArgs) ->
   ensure_started(merl),
   ensure_started(erlydtl),
 
-  % Erlang JS
-  %ensure_started(sasl),
-  %ensure_started(erlang_js),
-
+  % Erlcloud
+  ensure_started(ssl),
+  ensure_started(xmerl),
+  ensure_started(inets),
+  ensure_started(jsx),
+  ensure_started(lhttpc),
+  ensure_started(erlcloud),
+  soil_utls:setup_s3(),
   %% Norm
   ensure_started(norm),
    

@@ -6,7 +6,7 @@
   ,drop_session/1
   ,allow_peer/1
   ,is_authorized/1
-  ,s3/3
+  ,s3/2
   ,s3_canonical_uri/1
 ]).
 
@@ -47,10 +47,10 @@ is_authorized(JsonMap) ->
 %% @doc Hands out s3 tickets.
 %%
 %% -- GET
-s3(Verb,JwtMap,JsonMap) when Verb =:= <<"GET">> ->
-  UserId = maps:get(<<"user_id">>,JwtMap),
-  UserSalted = soil_crypt:s3_user_key(UserId),
-  BuketKey = iolist_to_binary([ UserSalted,<<"/">> ]),
+s3(Verb,JsonMap) when Verb =:= <<"GET">> ->
+  Body = maps:get(<<"body">>,JsonMap),
+  Key = maps:get(<<"path">>,Body),
+  BuketKey = iolist_to_binary([ Key ,<<"/">> ]),
   Resource = maps:get(<<"path">>,JsonMap),
   ResourcePath = iolist_to_binary([BuketKey,Resource]),
   Headers = maps:get(<<"headers">>,JsonMap),
@@ -65,11 +65,10 @@ s3(Verb,JwtMap,JsonMap) when Verb =:= <<"GET">> ->
   ]),
   {ok,Response};
 %% -- POST  
-s3(Verb,JwtMap,_JsonMap) when Verb =:= <<"POST">> ->
-  %% 01-Jan-1970 00:00:01 GMT 
-  UserId = maps:get(<<"user_id">>,JwtMap),
-  UserSalted = soil_crypto:s3_user_key(UserId),
-  BuketKey = iolist_to_binary([ UserSalted,<<"/">> ]),
+s3(Verb,JsonMap) when Verb =:= <<"POST">> ->
+  Body = maps:get(<<"body">>,JsonMap),
+  Key = maps:get(<<"path">>,Body),
+  BuketKey = iolist_to_binary([ Key,<<"/">> ]),
   % 1) Create Policy map
   NowSecs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
   Add15Mins = NowSecs + (15 * 60),
@@ -91,12 +90,12 @@ s3(Verb,JwtMap,_JsonMap) when Verb =:= <<"POST">> ->
   %% 2) Base64 encode Policy and generate signature
   PolicyBin = jsx:encode(PolicyMap),
   PolicyBase64 = base64:encode(PolicyBin),
-  {ok,AwsMap} = soil_utls:get_env(aws_s3),
-  Secret = maps:get(<<"secret">>,AwsMap),
-  Access = maps:get(<<"access">>,AwsMap),
+  Secret = soil_utls:get_env(s3_secret),
+  Access = soil_utls:get_env(s3_access),
   SignatureRaw = crypto:hmac(sha, Secret, PolicyBase64),
   SignatureBase64 = base64:encode(SignatureRaw),
-  S3UploadsUrl = soil_utls:get_env(s3_uploads_url),
+  Host = soil_utls:get_env(s3_hostname),
+  S3UploadsUrl = re:replace(Host,<<"{{ph1}}">>,<<"drook-users.">>,[{return,binary}]),
   ResultMap = #{  
     <<"url">> => S3UploadsUrl
     ,<<"access">> => Access
@@ -105,7 +104,7 @@ s3(Verb,JwtMap,_JsonMap) when Verb =:= <<"POST">> ->
     ,<<"key">> => BuketKey
   },
   {ok,ResultMap};
-s3(_Verb,_JwtMap,_JsonMap) ->
+s3(_Verb,_JsonMap) ->
   {error,#{ <<"unauthorised">> => <<"Invalid">> }}.
 
 

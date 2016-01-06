@@ -17,7 +17,7 @@ handle(Action,JsonMap,Key) when Action =:= <<"login">> ->
   User = maps:get(<<"body">>,JsonMap),
   Email = maps:get(<<"email">>,User),
   Find = norm:find(<<"user">>,#{ <<"where">> => [{ <<"email">>,'=',Email}] }),
-   soil_log:log("~p ~n",[Find]),
+  soil_log:log("~p ~n",[Find]),
   R = #{ <<"authenticated">> => false },
   Reply = if Find =:= [] -> R;
     true ->
@@ -33,15 +33,16 @@ handle(Action,JsonMap,Key) when Action =:= <<"login">> ->
 	Name = #{ <<"fname">> => Fname, <<"lname">> => Lname },
 	R3 = maps:put(<<"customer">>,Name,R2),
 	R4 = maps:put(<<"email">>,Email,R3), 
+        HomeKey = maps:get(<<"home_key">>,Customer),
+	R5 = maps:put(<<"home_key">>,HomeKey,R4), 
 	Cid = maps:get(<<"id">>,Customer),
 	JwtPayload = #{ 
           <<"customer_id">> => Cid
-          , <<"user_id">> => UserId 
           , <<"timestamp">> => soil_utls:timestamp() 
         },
 	Jwt = soil_utls:get_env(jwt),
         Token = jwt:encode(JwtPayload,Jwt),
-	maps:put(<<"token">>,Token,R4);
+	maps:put(<<"token">>,Token,R5);
       true -> R end
     end,
   reply(Action,Reply,JsonMap,Key);
@@ -60,10 +61,13 @@ handle(Action,JsonMap,Key) when Action =:= <<"register">> ->
   Reply = try
     {ok,start} = norm_pgsql:transaction(),
     {ok,UserId} = norm:save(User),
-    CustomerAddUserId = maps:put(<<"user_id">>,UserId,Customer),
-    {ok,CustomerId} = norm:save(CustomerAddUserId), 
+    Email = maps:get(<<"email">>,User),
+    CustomerAddEmail = maps:put(<<"email">>,Email,Customer),
+    CustomerAddUserId = maps:put(<<"user_id">>,UserId,CustomerAddEmail),
+    HomeKey = soil_utls:home_key_hash(UserId),
+    CustomerAddHomeKey = maps:put(<<"home_key">>,HomeKey,CustomerAddUserId),
+    {ok,_CustomerId} = norm:save(CustomerAddHomeKey), 
     {ok,commit} = norm_pgsql:commit(),
-    soil_log:log("Norm save: ~p ~p ~n",[UserId,CustomerId]),
     maps:update(<<"registered">>,true,R)
   catch _Error:Reason ->
     norm_pgsql:rollback(),
@@ -76,10 +80,10 @@ handle(Action,JsonMap,Key) when Action =:= <<"register">> ->
 %%
 handle(Action,JsonMap,Key) when Action =:= <<"s3">> ->
   Reply = case soil_session:is_authorized(JsonMap) of
-    {ok,Decoded} -> 
+    {ok,_Decoded} -> 
       Body = maps:get(<<"body">>,JsonMap),
       Verb = maps:get(<<"verb">>,Body),
-      case soil_session:s3(Verb,Decoded,JsonMap) of
+      case soil_session:s3(Verb,JsonMap) of
 	{ok,Response} -> Response;
 	{error,Msg} -> Msg
       end;
