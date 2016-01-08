@@ -82,8 +82,8 @@ handle(Action,JsonMap,Key) when Action =:= <<"s3">> ->
   Reply = case soil_session:is_authorized(JsonMap) of
     {ok,_Decoded} -> 
       Body = maps:get(<<"body">>,JsonMap),
-      Verb = maps:get(<<"verb">>,Body),
-      case soil_session:s3(Verb,JsonMap) of
+      Type = maps:get(<<"type">>,Body),
+      case soil_session:s3(Type,JsonMap) of
 	{ok,Response} -> Response;
 	{error,Msg} -> Msg
       end;

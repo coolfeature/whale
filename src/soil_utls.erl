@@ -20,6 +20,8 @@
   ,hash/1
   ,setup_s3/0
   ,home_key_hash/1
+
+  ,trim_bin/1
 ]).
 
 random() ->
@@ -50,7 +52,7 @@ setup_s3() ->
   S3SK = get_env(s3_secret),
   Host = get_env(s3_hostname),
   Hostname = re:replace(Host,<<"{{ph1}}">>,<<"">>,[{return,binary}]),
-  erlcloud_ec2:configure(S3AKID, S3SK, Hostname).
+  erlcloud_s3:configure(S3AKID, S3SK, Hostname).
 
 get_env(s3_secret) ->
   list_to_binary(os:getenv("DROOK_S3_SECRET_KEY"));
@@ -101,4 +103,5 @@ hash(Msg) ->
 home_key_hash(UserId) ->
   base64url:encode(crypto:hash(sha256,pad(UserId,10,$0))).
 
-
+trim_bin(Bin) ->
+  re:replace(Bin, "^\\s+|\\s+$", "", [{return, binary}, global]).

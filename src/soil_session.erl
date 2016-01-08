@@ -7,7 +7,8 @@
   ,allow_peer/1
   ,is_authorized/1
   ,s3/2
-  ,s3_canonical_uri/1
+  ,s3_encode_uri/1
+  ,s3_encode_headers/1
 ]).
 
 get_cookie(Req,Name) ->
@@ -47,41 +48,66 @@ is_authorized(JsonMap) ->
 %% @doc Hands out s3 tickets.
 %%
 %% -- GET
-s3(Verb,JsonMap) when Verb =:= <<"GET">> ->
+s3(Type,JsonMap) when Type =:= <<"list">> ->
+
+  %% HTTPMethod
+  HTTPMethod = <<"GET">>,
+
+  %% CanonicalURI
+  CanonicalURI = s3_encode_uri(<<"/">>),
+
+  %% CanonicalQueryString
   Body = maps:get(<<"body">>,JsonMap),
-  Key = maps:get(<<"path">>,Body),
-  BuketKey = iolist_to_binary([ Key ,<<"/">> ]),
-  Resource = maps:get(<<"path">>,JsonMap),
-  ResourcePath = iolist_to_binary([BuketKey,Resource]),
-  Headers = maps:get(<<"headers">>,JsonMap),
-  {CanonicalHeaders,SignedHeaders} = s3_canonical_headers(Headers),
-  HashedPayload = soil_crypto:hash(<<"">>),
-  Response = iolist_to_binary([
-    Verb,<<"\n">>
-    ,s3_canonical_uri(ResourcePath),<<"\n">>
+  Key = maps:get(<<"key">>,Body),
+  Prefix = iolist_to_binary([ Key ,<<"/content/">> ]), 
+  CanonicalQueryString = iolist_to_binary([
+    s3_encode_uri(<<"prefix">>),<<"=">>,s3_encode_uri(Prefix)
+    ,s3_encode_uri(<<"delimeter">>),<<"=">>,s3_encode_uri(<<"/">>)
+  ]),
+
+  %% CanonicalHeaders & SignedHeaders
+  Hostname = soil_utls:get_env(s3_hostname),
+  Host = re:replace(Hostname,<<"{{ph1}}">>,<<"drook-users.">>,[{return,binary}]),
+  Headers = [
+    {<<"host">>,Host}
+    ,{<<"x-amz-content-sha256">>,<<"the hash">>}
+    ,{<<"x-amz-date">>,<<"20130708T220855Z">>}
+  ],
+  {SignedHeaders,CanonicalHeaders} = s3_encode_headers(Headers), 
+
+  %% HashedPayload 
+  HashedPayload = soil_utls:hash(<<"">>),
+
+  CanonicalRequest = iolist_to_binary([
+    HTTPMethod,<<"\n">>
+    ,CanonicalURI,<<"\n">>
+    ,CanonicalQueryString,<<"\n">>
     ,CanonicalHeaders,<<"\n">>
     ,SignedHeaders,<<"\n">>
     ,HashedPayload
   ]),
+
+  Response = CanonicalRequest,
   {ok,Response};
 %% -- POST  
-s3(Verb,JsonMap) when Verb =:= <<"POST">> ->
+s3(Type,JsonMap) when Type =:= <<"upload">> ->
   Body = maps:get(<<"body">>,JsonMap),
-  Key = maps:get(<<"path">>,Body),
-  BuketKey = iolist_to_binary([ Key,<<"/">> ]),
+  Key = maps:get(<<"key">>,Body),
+  BuketKey = iolist_to_binary([ Key,<<"/content/">> ]),
   % 1) Create Policy map
   NowSecs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
   Add15Mins = NowSecs + (15 * 60),
   DateTimeExpires = calendar:gregorian_seconds_to_datetime(Add15Mins),
-  ExpirationTime = norm_utls:format_time(DateTimeExpires,'iso8601'),
-  ExpirationDate = norm_utls:format_date(DateTimeExpires,'iso8601'),
-  Expiration = iolist_to_binary([ExpirationDate,<<"T">>,ExpirationTime,<<"Z">>]),
+  ExpiryTime = norm_utls:format_time(DateTimeExpires,'iso8601'),
+  ExpiryDate = norm_utls:format_date(DateTimeExpires,'iso8601'),
+  Expiration = iolist_to_binary([ExpiryDate,<<"T">>,ExpiryTime,<<"Z">>]),
+  Acl = <<"public-read">>,
   PolicyMap = #{
     <<"expiration">> => Expiration
     ,<<"conditions">> => [
       #{ <<"bucket">> => <<"drook-users">> }
       ,[ <<"starts-with">>, <<"$key">>, BuketKey ]
-      ,#{ <<"acl">> => <<"private">> }
+      ,#{ <<"acl">> => Acl }
       %%,#{ <<"success_action_redirect">> => <<"http://drook.net">> }
       ,[ <<"starts-with">>, <<"$Content-Type">>, <<"">> ]
       ,[ <<"content-length-range">>, 0, 1048576 ]
@@ -102,17 +128,31 @@ s3(Verb,JsonMap) when Verb =:= <<"POST">> ->
     ,<<"policy">> => PolicyBase64
     ,<<"signature">> => SignatureBase64
     ,<<"key">> => BuketKey
+    ,<<"acl">> => Acl
   },
   {ok,ResultMap};
-s3(_Verb,_JsonMap) ->
+s3(_Type,_JsonMap) ->
   {error,#{ <<"unauthorised">> => <<"Invalid">> }}.
 
 
-s3_canonical_uri(Data) ->
+s3_encode_uri(Data) ->
   Data.
 
-s3_canonical_headers(Headers) ->  
-  SignedHeaders = Headers,
-  {Headers,SignedHeaders}.
+s3_encode_headers(Headers) -> 
+  lists:foldl(fun(Elem,Acc) ->
+    {Name,Value} = Elem,
+    LowercaseName = Name,
+    TrimValue = soil_utls:trim_bin(Value),
+    Header = iolist_to_binary([ LowercaseName, <<":">>, TrimValue, <<"\n">>]),
+    {SignedHeaderAcc,CanonicalHeaderAcc} = Acc,
+    Semi = if length(Acc) =:= length(Headers) -> <<"">>; true -> <<";">> end,
+    SignedHeader = iolist_to_binary([ SignedHeaderAcc,LowercaseName,Semi ]),
+    CanonicalHeader = iolist_to_binary([ CanonicalHeaderAcc,Header ]),
+    {SignedHeader,CanonicalHeader}
+  end,{<<"">>,<<"">>},Headers).
+
+
+
+
 
 
