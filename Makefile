@@ -7,8 +7,8 @@ all: compile
 compile:
 	$(REBAR) compile
 
-test: compile
-	@$(REBAR) eunit skip_deps=true
+test: 
+	export ERL_FLAGS="-config soil.config"; $(REBAR) skip_deps=true eunit
 
 clean:
 	@$(REBAR) clean

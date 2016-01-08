@@ -37,8 +37,8 @@ start(_StartType, _StartArgs) ->
   ensure_started(inets),
   ensure_started(jsx),
   ensure_started(lhttpc),
-  ensure_started(erlcloud),
-  soil_utls:setup_s3(),
+  %ensure_started(erlcloud),
+  %soil_utls:setup_s3(),
   %% Norm
   ensure_started(norm),
    
@@ -76,7 +76,7 @@ stop(_State) ->
 
 ensure_started(App) ->
   case application:start(App) of
-    ok -> ok;
+    ok -> soil_log:log("Started: ~p~n",[App]), ok;
     {error,{already_started,App}} -> ok;
     Error -> io:fwrite("Could not start ~p ~p ~n",[App,Error])
   end.

@@ -8,7 +8,10 @@
   ,is_authorized/1
   ,s3/2
   ,s3_encode_uri/1
+  ,s3_encode_uri/2
   ,s3_encode_headers/1
+
+  ,test/0
 ]).
 
 get_cookie(Req,Name) ->
@@ -136,12 +139,33 @@ s3(_Type,_JsonMap) ->
 
 
 s3_encode_uri(Data) ->
-  Data.
+  s3_encode_uri(Data,false).
+s3_encode_uri(Data,EncodeSlash) ->
+  s3_encode_uri(Data,<<"">>,EncodeSlash).
+s3_encode_uri(<<Char/utf8, Tail/binary>>,Acc,EncodeSlash) ->
+  Encoded = case Char of
+    Slash when Slash =:= 47 -> if EncodeSlash =:= true -> <<"%2F">>; true -> Slash end;
+    Upper when Upper >= 65 andalso Upper =< 90 -> Upper; 
+    Lower when Lower >= 97 andalso Lower =< 122 -> Lower; 
+    Digit when Digit >= 48 andalso Digit =< 57 -> Digit; 
+    Special when Special =:= 95 %% LOW LINE
+      orelse Special =:= 45 %% HYPHEN-MINUS
+      orelse Special =:= 126 %% TILDE
+      orelse Special =:= 46 %% FULL STOP
+        -> Special;
+    Other -> list_to_binary("%" ++ soil_utls:to_hex(Other))
+  end,
+  Result = iolist_to_binary([Acc,Encoded]),
+  s3_encode_uri(Tail,Result,EncodeSlash);
+s3_encode_uri(_,Acc,_EncodeSlash) -> 
+  Acc.
+
 
 s3_encode_headers(Headers) -> 
-  lists:foldl(fun(Elem,Acc) ->
+  {HeadersBin,CanonicalHeaders} = lists:foldl(fun(Elem,Acc) ->
     {Name,Value} = Elem,
-    LowercaseName = Name,
+    %% TODO: run to_lower on binary
+    LowercaseName = list_to_binary(string:to_lower(binary_to_list(Name))),
     TrimValue = soil_utls:trim_bin(Value),
     Header = iolist_to_binary([ LowercaseName, <<":">>, TrimValue, <<"\n">>]),
     {SignedHeaderAcc,CanonicalHeaderAcc} = Acc,
@@ -149,10 +173,18 @@ s3_encode_headers(Headers) ->
     SignedHeader = iolist_to_binary([ SignedHeaderAcc,LowercaseName,Semi ]),
     CanonicalHeader = iolist_to_binary([ CanonicalHeaderAcc,Header ]),
     {SignedHeader,CanonicalHeader}
-  end,{<<"">>,<<"">>},Headers).
+  end,{<<"">>,<<"">>},Headers),
+  SignedHeaders = re:replace(HeadersBin,<<";(?!.*;)">>,<<"">>,[{return, binary}]),
+  {SignedHeaders,CanonicalHeaders}.
 
 
-
-
-
-
+test() ->
+  Hostname = soil_utls:get_env(s3_hostname),
+  Host = re:replace(Hostname,<<"{{ph1}}">>,<<"drook-users.">>,[{return,binary}]),
+  Headers = [
+    {<<"Host">>,Host}
+    ,{<<"x-amz-content-sha256">>,<<"the hash">>}
+    ,{<<"x-amz-date">>,<<"20130708T220855Z">>}
+  ],
+  Result = s3_encode_headers(Headers),
+  io:fwrite("~p~n",[Result]).
