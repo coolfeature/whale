@@ -52,7 +52,8 @@ resource_exists(Req, State) ->
 
 route_to_html(Req,State) ->
   {Path,Req2} = cowboy_req:path(Req),
-  {_Peer,Req3} = cowboy_req:peer(Req2),
+  {Peer,Req3} = cowboy_req:peer(Req2),
+  soil_log:log("Request from: ~p~n",[Peer]),
   to_html(Path,Req3,State).
 
 to_html(IndexFile, Req, #{ index_file := IndexFile } = State) ->
@@ -68,6 +69,9 @@ to_html(IndexFile, Req, #{ index_file := IndexFile } = State) ->
       {ok,Body} = index_dtl:render([])
   end,
   {Body, Req2, State};
+
+to_html(<<"/test">>, Req, _State) ->
+  io:fwrite(user,"~p~n",[Req]);
 
 to_html(<<"/">>, Req, State) ->
   {ok, Req2} = cowboy_req:reply(302,

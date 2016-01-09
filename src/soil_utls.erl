@@ -22,8 +22,8 @@
   ,home_key_hash/1
 
   ,trim_bin/1
-  ,to_hex/1
   ,hex/1
+  ,hex/2
 ]).
 
 random() ->
@@ -111,41 +111,21 @@ home_key_hash(UserId) ->
 trim_bin(Bin) ->
   re:replace(Bin, "^\\s+|\\s+$", "", [{return, binary}, global]).
 
-%% ============================================================================
-%% ============================== HEX UTLS ====================================
-%% ============================================================================
-
-%% @type iolist() = [char() | binary() | iolist()]
-%% @type iodata() = iolist() | binary()
-
-%% @spec to_hex(integer | iolist()) -> string()
-%% @doc Convert an iolist to a hexadecimal string.
-to_hex(0) ->
-    "0";
-to_hex(I) when is_integer(I), I > 0 ->
-    to_hex_int(I, []).
-
-%% @spec hexdigit(integer()) -> char()
-%% @doc Convert an integer less than 16 to a hex digit.
-hexdigit(C) when C >= 0, C =< 9 ->
-    C + $0;
-hexdigit(C) when C =< 15 ->
-    C + $a - 10.
-
-%% Internal API
-
-to_hex_int(0, Acc) ->
-    Acc;
-to_hex_int(I, Acc) ->
-    to_hex_int(I bsr 4, [hexdigit(I band 15) | Acc]).
-
-
-%% ============================================================================
+%% =============================================================================
 %%
 %%
+hex(Int) when is_integer(Int) ->
+  hex(Int,"");
 hex(Binary) when is_binary(Binary) ->
+  hex(Binary,"").
+
+hex(Int,App) when is_integer(Int) ->
+  String = binary_to_list(lists:flatten(
+    io_lib:format("~2.16.0b", [Int]))),
+  list_to_binary(App ++ String);
+hex(Binary,App) when is_binary(Binary) ->
   String = lists:flatten(lists:map(
     fun(X) -> io_lib:format("~2.16.0b", [X]) end, 
   binary_to_list(Binary))),
-  list_to_binary(String).
+  list_to_binary(App ++ String).
 

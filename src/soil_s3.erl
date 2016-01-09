@@ -39,7 +39,8 @@ s3_host(_Type) ->
 %% -- GET
 s3(Type,JsonMap) when Type =:= <<"list">> -> 
   RequestMap = s3_authorization(Type,JsonMap),
-  {ok,RequestMap};
+  Resp = s3_req(RequestMap), 
+  {ok,Resp};
 %% -- POST  
 s3(Type,JsonMap) when Type =:= <<"upload">> ->
   Body = maps:get(<<"body">>,JsonMap),
@@ -119,24 +120,22 @@ s3_authorization(Type,JsonMap) when Type =:= <<"list">> ->
 %%
 
 s3_authorization(ParamMap) when is_map(ParamMap) ->
-
   %% HTTPMethod
   HTTPMethod = maps:get(<<"Method">>,ParamMap),
-
   %% CanonicalURI
   URI = maps:get(<<"URI">>,ParamMap),
   CanonicalURI = s3_encode_uri(URI),
-
   %% CanonicalQueryString
   Query = maps:get(<<"Query">>,ParamMap),
   CanonicalQueryString = s3_encode_query_string(Query),
+  ParamMap2 = maps:put(<<"QueryString">>,CanonicalQueryString,ParamMap),
   %% HashedPayload
-  Payload = maps:get(<<"Payload">>,ParamMap),
+  Payload = maps:get(<<"Payload">>,ParamMap2),
   HashedPayload = hash(Payload),
-
+  ParamMap3 = maps:put(<<"HashedPayload">>,HashedPayload,ParamMap2),
   %% CanonicalHeaders & SignedHeaders
-  Host = maps:get(<<"Host">>,ParamMap),
-  DateTime = maps:get(<<"DateTime">>,ParamMap),
+  Host = maps:get(<<"Host">>,ParamMap3),
+  DateTime = maps:get(<<"DateTime">>,ParamMap3),
   DateTimeISO8601 = soil_utls:format_datetime(DateTime),
   DateTimeS3 = remove_separators(DateTimeISO8601),
   Headers = [
@@ -144,9 +143,7 @@ s3_authorization(ParamMap) when is_map(ParamMap) ->
     ,{<<"x-amz-content-sha256">>,HashedPayload}
     ,{<<"x-amz-date">>,DateTimeS3}
   ],
-
   {SignedHeaders,CanonicalHeaders} = s3_encode_headers(Headers), 
-
   CanonicalRequest = iolist_to_binary([
     HTTPMethod,<<"\n">>
     ,CanonicalURI,<<"\n">>
@@ -155,16 +152,14 @@ s3_authorization(ParamMap) when is_map(ParamMap) ->
     ,SignedHeaders,<<"\n">>
     ,HashedPayload
   ]),
-
   %% String to Sign
   CanonicalRequestHash = hash(CanonicalRequest),
-
   Aws4Req = <<"aws4_request">>,
   Date = remove_separators(soil_utls:format_date(DateTime)),
-  Region = maps:get(<<"Region">>,ParamMap),
-  Service = maps:get(<<"Service">>,ParamMap),
+  Region = maps:get(<<"Region">>,ParamMap3),
+  Service = maps:get(<<"Service">>,ParamMap3),
   Scope = iolist_to_binary([Date,<<"/">>,Region,<<"/">>,Service,<<"/">>,Aws4Req]), 
-  DateTime = maps:get(<<"DateTime">>,ParamMap),
+  DateTime = maps:get(<<"DateTime">>,ParamMap3),
   StringToSign = iolist_to_binary([
     <<"AWS4-HMAC-SHA256">>,<<"\n">>
     ,DateTimeS3,<<"\n">>
@@ -172,9 +167,9 @@ s3_authorization(ParamMap) when is_map(ParamMap) ->
     ,CanonicalRequestHash
   ]),
 
-  ParamMap2 = maps:put(<<"StringToSign">>,StringToSign,ParamMap),
+  ParamMap4 = maps:put(<<"StringToSign">>,StringToSign,ParamMap3),
 
-  Secret = maps:get(<<"Secret">>,ParamMap),
+  Secret = maps:get(<<"Secret">>,ParamMap4),
   DateKey = crypto:hmac(sha256,iolist_to_binary([<<"AWS4">>,Secret]),Date),
   DateRegionKey = crypto:hmac(sha256,DateKey,Region),
   DateRegionService = crypto:hmac(sha256,DateRegionKey,Service),
@@ -183,9 +178,9 @@ s3_authorization(ParamMap) when is_map(ParamMap) ->
   %% This is valid for 7 days
   Signature = soil_utls:hex(crypto:hmac(sha256,SigningKey,StringToSign)),
 
-  ParamMap3 =maps:put(<<"Signature">>,Signature,ParamMap2),
+  ParamMap5 = maps:put(<<"Signature">>,Signature,ParamMap4),
 
-  Access = maps:get(<<"Access">>,ParamMap),
+  Access = maps:get(<<"Access">>,ParamMap5),
   Authorization = iolist_to_binary([
     <<"AWS4-HMAC-SHA256">>,<<" ">>
     ,<<"Credential">>,<<"=">>,Access
@@ -193,7 +188,8 @@ s3_authorization(ParamMap) when is_map(ParamMap) ->
     ,<<",">>,<<"SignedHeaders">>,<<"=">>,SignedHeaders
     ,<<",">>,<<"Signature">>,<<"=">>,Signature
   ]),
-  maps:put(<<"Authorization">>,Authorization,ParamMap3).
+  AuthHeaders = [{<<"Authorization">>,Authorization}] ++ Headers,
+  maps:put(<<"Headers">>,AuthHeaders,ParamMap5).
 
 %%
 %% @private Encodes URI
@@ -202,11 +198,11 @@ s3_authorization(ParamMap) when is_map(ParamMap) ->
 
 s3_encode_uri(Data) ->
   s3_encode_uri(Data,false).
-s3_encode_uri(Data,EncodeSlash) ->
-  s3_encode_uri(Data,<<"">>,EncodeSlash).
-s3_encode_uri(<<Char/utf8, Tail/binary>>,Acc,EncodeSlash) ->
+s3_encode_uri(Data,EncSlash) ->
+  s3_encode_uri(Data,<<"">>,EncSlash).
+s3_encode_uri(<<Char/utf8, Tail/binary>>,Acc,EncSlash) ->
   Encoded = case Char of
-    Slash when Slash =:= 47 -> if EncodeSlash =:= true -> <<"%2F">>; true -> Slash end;
+    Slash when Slash =:= 47 -> if EncSlash =:= true -> <<"%2F">>; true -> Slash end;
     Upper when Upper >= 65 andalso Upper =< 90 -> Upper; 
     Lower when Lower >= 97 andalso Lower =< 122 -> Lower; 
     Digit when Digit >= 48 andalso Digit =< 57 -> Digit; 
@@ -215,11 +211,11 @@ s3_encode_uri(<<Char/utf8, Tail/binary>>,Acc,EncodeSlash) ->
       orelse Special =:= 126 %% TILDE
       orelse Special =:= 46 %% FULL STOP
         -> Special;
-    Other -> list_to_binary("%" ++ soil_utls:to_hex(Other))
+    Other -> soil_utls:hex(Other,"%")
   end,
   Result = iolist_to_binary([Acc,Encoded]),
-  s3_encode_uri(Tail,Result,EncodeSlash);
-s3_encode_uri(_,Acc,_EncodeSlash) -> 
+  s3_encode_uri(Tail,Result,EncSlash);
+s3_encode_uri(_,Acc,_EncSlash) -> 
   Acc.
 
 %%
@@ -272,9 +268,27 @@ hash(Msg) ->
 remove_separators(Bin) ->
   re:replace(Bin,<<"(-)|(:)">>,<<"">>,[global,{return, binary}]).
 
-%% ============================================================================
-%% =============================== TEST =======================================
-%% ============================================================================
+%% =============================================================================
+%% ================================ HTTP =======================================
+%% =============================================================================
+
+s3_req(DataMap) ->
+  Host = maps:get(<<"Host">>,DataMap),
+  URI = maps:get(<<"URI">>,DataMap),
+  QS = maps:get(<<"QueryString">>,DataMap),
+  Path = iolist_to_binary([ URI,<<"?">>,QS ]), 
+  URL = binary_to_list(iolist_to_binary([ Host,Path ])),
+  Method = binary_to_list(maps:get(<<"Method">>,DataMap)),
+  Hdrs = maps:get(<<"Headers">>,DataMap),
+  %Hdrs = [{<<"Host">>,Host}] ++ Headers, 
+  %Body = maps:get(<<"HashedPayload">>,DataMap),
+  Timeout = 5000,
+  Options = [],
+  lhttpc:request("http://localhost:8080/test",Method,Hdrs,<<"">>,Timeout,Options).
+
+%% =============================================================================
+%% ================================ TEST =======================================
+%% =============================================================================
 
 sample_test_data() ->
   s3_authorization(#{
@@ -305,13 +319,22 @@ sign_string_test() ->
 
 signature_test() ->
   TestData = sample_test_data(),
-  Result = maps:get(<<"Authorization">>,TestData),
+  Headers = maps:get(<<"Headers">>,TestData),
+  Result = proplists:get_value(<<"Authorization">>,Headers),
   Test = iolist_to_binary([<<"AWS4-HMAC-SHA256">>,<<" ">>
     ,<<"Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request">>
     ,<<",SignedHeaders=host;x-amz-content-sha256;x-amz-date">>
     ,<<",Signature=34b48302e7b5fa45bde8084f4b7868a86f0a534bc59db6670ed5711ef69dc6f7">>]),
   io:fwrite(user,"======= signature_test:~n~p~n~n =:= ~n~n~p~n~n",[Test,Result]),
   ?assert(Test =:= Result).
+
+s3_req_test() ->
+  JsonMap = #{ <<"body">> => 
+    #{ <<"key">> => <<"0HPdYgj3YXlCO2A-RP0vXlzYK4UH2sO6LOsrPeMwDP8">> }},
+  Resp = s3(<<"list">>,JsonMap),
+  io:fwrite(user,"======= s3_req_test:~n~p~n~n",[Resp]),
+  ?assert(Resp =:= ok).
+ 
 
 
 
