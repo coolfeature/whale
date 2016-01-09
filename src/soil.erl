@@ -83,7 +83,7 @@ handle(Action,JsonMap,Key) when Action =:= <<"s3">> ->
     {ok,_Decoded} -> 
       Body = maps:get(<<"body">>,JsonMap),
       Type = maps:get(<<"type">>,Body),
-      case soil_session:s3(Type,JsonMap) of
+      case soil_s3:s3(Type,JsonMap) of
 	{ok,Response} -> Response;
 	{error,Msg} -> Msg
       end;

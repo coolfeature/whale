@@ -32,10 +32,7 @@ start(_StartType, _StartArgs) ->
   ensure_started(erlydtl),
 
   % Erlcloud
-  ensure_started(ssl),
   ensure_started(xmerl),
-  ensure_started(inets),
-  ensure_started(jsx),
   ensure_started(lhttpc),
   %ensure_started(erlcloud),
   %soil_utls:setup_s3(),

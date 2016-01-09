@@ -15,14 +15,15 @@
   ,timestamp/0
   ,datetime_to_timestamp/1
   ,datetime_to_timestamp/2
+  ,format_date/1
+  ,format_datetime/1
 
   ,pad/3
-  ,hash/1
-  ,setup_s3/0
   ,home_key_hash/1
 
   ,trim_bin/1
   ,to_hex/1
+  ,hex/1
 ]).
 
 random() ->
@@ -47,13 +48,6 @@ get_value(Key, Opts, Default) ->
     {_, Value} -> Value;
     _ -> Default
   end.
-
-setup_s3() ->
-  S3AKID = get_env(s3_access),
-  S3SK = get_env(s3_secret),
-  Host = get_env(s3_hostname),
-  Hostname = re:replace(Host,<<"{{ph1}}">>,<<"">>,[{return,binary}]),
-  erlcloud_s3:configure(S3AKID, S3SK, Hostname).
 
 get_env(s3_secret) ->
   list_to_binary(os:getenv("DROOK_S3_SECRET_KEY"));
@@ -83,6 +77,20 @@ datetime_to_timestamp(DateTime,return_binary) ->
   {S,SS,_O} = datetime_to_timestamp(DateTime),
   list_to_binary(integer_to_list(S) ++ integer_to_list(SS)).
 
+format_date(DateTime) ->
+  format_date(DateTime,'iso8601').
+
+format_date(DateTime,Format) ->
+  norm_utls:format_date(DateTime,Format).
+
+format_datetime(DateTime) ->
+  format_datetime(DateTime,'iso8601').
+
+format_datetime(DateTime,Format) ->
+  ExpiryTime = norm_utls:format_time(DateTime,Format),
+  ExpiryDate = format_date(DateTime,Format),
+  iolist_to_binary([ExpiryDate,<<"T">>,ExpiryTime,<<"Z">>]).
+
 %%------------------------------------------------------------------------------
 %% @doc Format an integer with a padding of zeroes
 %% @end
@@ -96,10 +104,6 @@ pad(Number, Padding, Char) ->
   ZeroesNeeded = max(Padding - length(NumberStr), 0),
   String = [lists:duplicate(ZeroesNeeded, Char), NumberStr],
   iolist_to_binary(String).
-
-hash(Msg) ->
-  <<X:256/big-unsigned-integer>> = crypto:hash(sha256,Msg),
-  list_to_binary(integer_to_list(X, 16)).
 
 home_key_hash(UserId) ->
   base64url:encode(crypto:hash(sha256,pad(UserId,10,$0))).
@@ -117,30 +121,9 @@ trim_bin(Bin) ->
 %% @spec to_hex(integer | iolist()) -> string()
 %% @doc Convert an iolist to a hexadecimal string.
 to_hex(0) ->
-    <<"0">>;
+    "0";
 to_hex(I) when is_integer(I), I > 0 ->
-    to_hex_int(I, []);
-to_hex(B) ->
-    to_hex(iolist_to_binary(B), []).
-
-%% @spec to_bin(string()) -> binary()
-%% @doc Convert a hexadecimal string to a binary.
-to_bin(L) ->
-    to_bin(L, []).
-
-%% @spec to_int(string()) -> integer()
-%% @doc Convert a hexadecimal string to an integer.
-to_int(L) ->
-    erlang:list_to_integer(L, 16).
-
-%% @spec dehex(char()) -> integer()
-%% @doc Convert a hex digit to its integer value.
-dehex(C) when C >= $0, C =< $9 ->
-    C - $0;
-dehex(C) when C >= $a, C =< $f ->
-    C - $a + 10;
-dehex(C) when C >= $A, C =< $F ->
-    C - $A + 10.
+    to_hex_int(I, []).
 
 %% @spec hexdigit(integer()) -> char()
 %% @doc Convert an integer less than 16 to a hex digit.
@@ -151,18 +134,18 @@ hexdigit(C) when C =< 15 ->
 
 %% Internal API
 
-to_hex(<<>>, Acc) ->
-    lists:reverse(Acc);
-to_hex(<<C1:4, C2:4, Rest/binary>>, Acc) ->
-    to_hex(Rest, [hexdigit(C2), hexdigit(C1) | Acc]).
-
 to_hex_int(0, Acc) ->
     Acc;
 to_hex_int(I, Acc) ->
     to_hex_int(I bsr 4, [hexdigit(I band 15) | Acc]).
-to_bin([], Acc) ->
-    iolist_to_binary(lists:reverse(Acc));
-to_bin([C1, C2 | Rest], Acc) ->
-    to_bin(Rest, [(dehex(C1) bsl 4) bor dehex(C2) | Acc]).
 
+
+%% ============================================================================
+%%
+%%
+hex(Binary) when is_binary(Binary) ->
+  String = lists:flatten(lists:map(
+    fun(X) -> io_lib:format("~2.16.0b", [X]) end, 
+  binary_to_list(Binary))),
+  list_to_binary(String).
 
