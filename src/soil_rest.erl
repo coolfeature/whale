@@ -70,8 +70,9 @@ to_html(IndexFile, Req, #{ index_file := IndexFile } = State) ->
   end,
   {Body, Req2, State};
 
-to_html(<<"/test">>, Req, _State) ->
-  io:fwrite(user,"~p~n",[Req]);
+to_html(<<"/test">>, Req, State) ->
+  io:fwrite(user,"TEST RESP:: ~p~n",[Req]),
+  {<<"<html>HELLO</html>">>, Req, State};
 
 to_html(<<"/">>, Req, State) ->
   {ok, Req2} = cowboy_req:reply(302,

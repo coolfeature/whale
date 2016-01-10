@@ -24,6 +24,7 @@
   ,trim_bin/1
   ,hex/1
   ,hex/2
+  ,to_string/1
 ]).
 
 random() ->
@@ -128,4 +129,11 @@ hex(Binary,App) when is_binary(Binary) ->
     fun(X) -> io_lib:format("~2.16.0b", [X]) end, 
   binary_to_list(Binary))),
   list_to_binary(App ++ String).
+
+to_string(Bin) when is_binary(Bin) ->
+  binary_to_list(Bin);
+to_string(PropList) when is_list(PropList) ->
+  lists:foldl(fun({BinKey,BinVal},Acc) -> 
+    Acc ++ [{binary_to_list(BinKey),binary_to_list(BinVal)}]
+  end,"",PropList).
 

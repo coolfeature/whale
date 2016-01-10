@@ -13,7 +13,7 @@
   ,s3_encode_headers/1
 ]).
 
--define(S3_HOSTNAME,<<"http://{{bucket}}s3-{{region}}amazonaws.com">>).
+-define(S3_HOSTNAME,<<"http://{{bucket}}s3{{region}}amazonaws.com">>).
 -define(S3_REGION,<<"eu-west-1">>).
 -define(S3_USER_BUCKET,<<"drook-users">>).
 
@@ -26,12 +26,11 @@
 
 s3_host() ->
   Host = re:replace(?S3_HOSTNAME,<<"{{bucket}}">>,<<"">>,[{return,binary}]),
-  re:replace(Host,<<"{{region}}">>,<<"">>,[{return,binary}]). 
-s3_host(_Type) ->
+  re:replace(Host,<<"{{region}}">>,<<".">>,[{return,binary}]). 
+s3_host(<<"list">>) ->
   Bucket = iolist_to_binary([ ?S3_USER_BUCKET,<<".">> ]),
-  Region = iolist_to_binary([ ?S3_REGION,<<".">> ]),
   Host = re:replace(?S3_HOSTNAME,<<"{{bucket}}">>,Bucket,[{return,binary}]),
-  re:replace(Host,<<"{{region}}">>,Region,[{return,binary}]).
+  re:replace(Host,<<"{{region}}">>,<<".">>,[{return,binary}]).
 
 %%
 %% @doc Hands out s3 tickets.
@@ -134,7 +133,8 @@ s3_authorization(ParamMap) when is_map(ParamMap) ->
   HashedPayload = hash(Payload),
   ParamMap3 = maps:put(<<"HashedPayload">>,HashedPayload,ParamMap2),
   %% CanonicalHeaders & SignedHeaders
-  Host = maps:get(<<"Host">>,ParamMap3),
+  HostUrl = maps:get(<<"Host">>,ParamMap3),
+  Host = re:replace(HostUrl,<<"https?://">>,<<"">>,[{return,binary}]),
   DateTime = maps:get(<<"DateTime">>,ParamMap3),
   DateTimeISO8601 = soil_utls:format_datetime(DateTime),
   DateTimeS3 = remove_separators(DateTimeISO8601),
@@ -276,15 +276,16 @@ s3_req(DataMap) ->
   Host = maps:get(<<"Host">>,DataMap),
   URI = maps:get(<<"URI">>,DataMap),
   QS = maps:get(<<"QueryString">>,DataMap),
-  Path = iolist_to_binary([ URI,<<"?">>,QS ]), 
-  URL = binary_to_list(iolist_to_binary([ Host,Path ])),
-  Method = binary_to_list(maps:get(<<"Method">>,DataMap)),
-  Hdrs = maps:get(<<"Headers">>,DataMap),
+  Path = iolist_to_binary([ URI,<<"?">>,QS ]),
+  URL = soil_utls:to_string(iolist_to_binary([ Host,Path ])),
+  Method = soil_utls:to_string(maps:get(<<"Method">>,DataMap)),
+  Headers = maps:get(<<"Headers">>,DataMap),
+  Hdrs = soil_utls:to_string(proplists:delete(<<"Host">>,Headers)),
   %Hdrs = [{<<"Host">>,Host}] ++ Headers, 
   %Body = maps:get(<<"HashedPayload">>,DataMap),
   Timeout = 5000,
   Options = [],
-  lhttpc:request("http://localhost:8080/test",Method,Hdrs,<<"">>,Timeout,Options).
+  lhttpc:request(URL,Method,Hdrs,[],Timeout,Options).
 
 %% =============================================================================
 %% ================================ TEST =======================================
