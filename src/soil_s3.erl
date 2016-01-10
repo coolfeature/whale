@@ -1,6 +1,8 @@
 %%
 %%
+%% @copyright IONAS SOFTWARE LTD
 %% @author IONAS SOFTWARE LTD
+%% @see http://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-header-based-auth.html
 %%
 -module(soil_s3).
 
@@ -18,6 +20,7 @@
 -define(S3_USER_BUCKET,<<"drook-users">>).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("xmerl/include/xmerl.hrl").
 
 %%
 %% 
@@ -27,6 +30,11 @@
 s3_host() ->
   Host = re:replace(?S3_HOSTNAME,<<"{{bucket}}">>,<<"">>,[{return,binary}]),
   re:replace(Host,<<"{{region}}">>,<<".">>,[{return,binary}]). 
+s3_host(<<"upload">>) ->
+  Bucket = iolist_to_binary([ ?S3_USER_BUCKET,<<".">> ]),
+  Host = re:replace(?S3_HOSTNAME,<<"{{bucket}}">>,Bucket,[{return,binary}]), 
+  Region = iolist_to_binary([ <<"-">>,?S3_REGION,<<".">> ]),
+  re:replace(Host,<<"{{region}}">>,Region,[{return,binary}]);
 s3_host(<<"list">>) ->
   Bucket = iolist_to_binary([ ?S3_USER_BUCKET,<<".">> ]),
   Host = re:replace(?S3_HOSTNAME,<<"{{bucket}}">>,Bucket,[{return,binary}]),
@@ -38,8 +46,15 @@ s3_host(<<"list">>) ->
 %% -- GET
 s3(Type,JsonMap) when Type =:= <<"list">> -> 
   RequestMap = s3_authorization(Type,JsonMap),
-  Resp = s3_req(RequestMap), 
-  {ok,Resp};
+  case s3_req(RequestMap) of 
+    {ok,{{200,_Ok},Body}} ->
+      {Root, _RemainingText} = xmerl_scan:string(binary_to_list(Body)),
+      KeyList = s3_resp_extract(Type,Root),
+      {ok,#{ <<"result">> => <<"ok">>, <<"contents">> => KeyList}};
+    {error,_Error} ->
+      {error,#{ <<"result">> => <<"error">>
+        , <<"msg">> => <<"S3 call did not succeed">> }}
+  end;
 %% -- POST  
 s3(Type,JsonMap) when Type =:= <<"upload">> ->
   Body = maps:get(<<"body">>,JsonMap),
@@ -49,7 +64,7 @@ s3(Type,JsonMap) when Type =:= <<"upload">> ->
   NowSecs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
   Add15Mins = NowSecs + (15 * 60),
   DateTimeExpires = calendar:gregorian_seconds_to_datetime(Add15Mins),
-  Expiration = remove_separators(soil_utls:format_datetime(DateTimeExpires)),
+  Expiration = soil_utls:format_datetime(DateTimeExpires),
   Acl = <<"public-read">>,
   PolicyMap = #{
     <<"expiration">> => Expiration
@@ -95,6 +110,8 @@ s3_authorization(Type,JsonMap) when Type =:= <<"list">> ->
     { <<"delimeter">>, <<"/">>}
     ,{<<"prefix">>,Prefix }
   ],
+  S3Referer = soil_utls:get_env(s3_referer),
+  Headers = [{<<"Referer">>,S3Referer}],
   DateTime = calendar:universal_time(),
   Access = soil_utls:get_env(s3_access),
   Secret = soil_utls:get_env(s3_secret),
@@ -103,6 +120,7 @@ s3_authorization(Type,JsonMap) when Type =:= <<"list">> ->
     ,<<"URI">> => <<"/">>
     ,<<"Host">> => s3_host(Type)
     ,<<"Query">> => Query
+    ,<<"Headers">> => Headers
     ,<<"Payload">> => <<"">>
     ,<<"Region">> => ?S3_REGION
     ,<<"Service">> => <<"s3">>
@@ -138,11 +156,14 @@ s3_authorization(ParamMap) when is_map(ParamMap) ->
   DateTime = maps:get(<<"DateTime">>,ParamMap3),
   DateTimeISO8601 = soil_utls:format_datetime(DateTime),
   DateTimeS3 = remove_separators(DateTimeISO8601),
+
+  Hdrs = maps:get(<<"Headers">>,ParamMap3,[]),
   Headers = [
     {<<"Host">>,Host}
     ,{<<"x-amz-content-sha256">>,HashedPayload}
     ,{<<"x-amz-date">>,DateTimeS3}
-  ],
+  ] ++ Hdrs,
+
   {SignedHeaders,CanonicalHeaders} = s3_encode_headers(Headers), 
   CanonicalRequest = iolist_to_binary([
     HTTPMethod,<<"\n">>
@@ -219,11 +240,12 @@ s3_encode_uri(_,Acc,_EncSlash) ->
   Acc.
 
 %%
-%% @private 
+%% @private Every slash should be encoded except in key name and absolute URI.
 %%
 %%
 
 s3_encode_headers(Headers) -> 
+  HeadersSorted = lists:keysort(1,Headers),
   {HeadersBin,CanonicalHeaders} = lists:foldl(fun(Elem,Acc) ->
     {Name,Value} = Elem,
     %% TODO: run to_lower on binary
@@ -234,7 +256,7 @@ s3_encode_headers(Headers) ->
     SignedHeader = iolist_to_binary([ SignedHeaderAcc,LowercaseName,<<";">> ]),
     CanonicalHeader = iolist_to_binary([ CanonicalHeaderAcc,Header ]),
     {SignedHeader,CanonicalHeader}
-  end,{<<"">>,<<"">>},Headers),
+  end,{<<"">>,<<"">>},HeadersSorted),
   SignedHeaders = re:replace(HeadersBin,<<";(?!.*;)">>,<<"">>,[{return, binary}]),
   {SignedHeaders,CanonicalHeaders}.
 
@@ -247,11 +269,12 @@ s3_encode_headers(Headers) ->
 s3_encode_query_string([]) ->
   <<"">>;
 s3_encode_query_string(QueryString) ->
+  QueryStringSorted = lists:keysort(1,QueryString),
   QueryStringEncoded = lists:foldl(fun({Key,Val},Acc) ->
     iolist_to_binary([
-      Acc,s3_encode_uri(Key),<<"=">>,s3_encode_uri(Val),<<"&">>
+      Acc,s3_encode_uri(Key,true),<<"=">>,s3_encode_uri(Val,true),<<"&">>
     ])
-  end,<<"">>,QueryString),
+  end,<<"">>,QueryStringSorted),
   re:replace(QueryStringEncoded,<<"&(?!.*&)">>,<<"">>,[{return, binary}]).
 
 %%
@@ -276,7 +299,8 @@ s3_req(DataMap) ->
   Host = maps:get(<<"Host">>,DataMap),
   URI = maps:get(<<"URI">>,DataMap),
   QS = maps:get(<<"QueryString">>,DataMap),
-  Path = iolist_to_binary([ URI,<<"?">>,QS ]),
+  AddQs = if QS =:= <<"">> -> <<"">>; true -> <<"?">> end,
+  Path = iolist_to_binary([ URI,AddQs,QS ]),
   URL = soil_utls:to_string(iolist_to_binary([ Host,Path ])),
   Method = soil_utls:to_string(maps:get(<<"Method">>,DataMap)),
   Headers = maps:get(<<"Headers">>,DataMap),
@@ -285,8 +309,24 @@ s3_req(DataMap) ->
   %Body = maps:get(<<"HashedPayload">>,DataMap),
   Timeout = 5000,
   Options = [],
-  lhttpc:request(URL,Method,Hdrs,[],Timeout,Options).
+  case lhttpc:request(URL,Method,Hdrs,[],Timeout,Options) of
+    {ok,{Status,_Headers,Body}} -> {ok,{Status,Body}};
+    {error,Error} -> {error,Error}
+  end.
 
+%% =============================================================================
+%% ================================ XML ========================================
+%% =============================================================================
+
+s3_resp_extract(Type,Root) when Type =:= <<"list">> -> 
+  KeyList = xmerl_xpath:string("//ListBucketResult/Contents/Key/text()",Root),
+  lists:foldl( fun(Elm,Acc) -> 
+    {_XmlText,_TreeList,_No,_Empty,Key,_Text} = Elm,
+    KeyBin = list_to_binary(Key),
+    Url = iolist_to_binary([ s3_host(<<"upload">>),<<"/">>,KeyBin]),
+    [ #{<<"src">> => Url }] ++ Acc
+  end,[],KeyList ).
+ 
 %% =============================================================================
 %% ================================ TEST =======================================
 %% =============================================================================
@@ -295,7 +335,7 @@ sample_test_data() ->
   s3_authorization(#{
     <<"Method">> => <<"GET">>
     ,<<"URI">> => <<"/">>
-    ,<<"Host">> =>  <<"examplebucket.s3.amazonaws.com">>
+    ,<<"Host">> => <<"examplebucket.s3.amazonaws.com">>
     ,<<"Query">> => [
       { <<"max-keys">>, <<"2">>}
       ,{<<"prefix">>,<<"J">> }
@@ -315,7 +355,7 @@ sign_string_test() ->
     <<"20130524/us-east-1/s3/aws4_request\n">>,
     <<"df57d21db20da04d7fa30298dd4488ba3a2b47ca3a489c74750e0f1e7df1b9b7">>]),
   Result = maps:get(<<"StringToSign">>,TestData),
-  io:fwrite(user,"======= sign_string_test:~n~p~n~n =:= ~n~n~p~n~n",[Test,Result]),
+  io:fwrite(user,"==== sign_string_test:~n~p~n~n =:= ~n~n~p~n~n",[Test,Result]),
   ?assert(Test =:= Result).
 
 signature_test() ->
@@ -326,16 +366,19 @@ signature_test() ->
     ,<<"Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request">>
     ,<<",SignedHeaders=host;x-amz-content-sha256;x-amz-date">>
     ,<<",Signature=34b48302e7b5fa45bde8084f4b7868a86f0a534bc59db6670ed5711ef69dc6f7">>]),
-  io:fwrite(user,"======= signature_test:~n~p~n~n =:= ~n~n~p~n~n",[Test,Result]),
+  io:fwrite(user,"==== signature_test:~n~p~n~n =:= ~n~n~p~n~n",[Test,Result]),
   ?assert(Test =:= Result).
 
 s3_req_test() ->
   JsonMap = #{ <<"body">> => 
     #{ <<"key">> => <<"0HPdYgj3YXlCO2A-RP0vXlzYK4UH2sO6LOsrPeMwDP8">> }},
-  Resp = s3(<<"list">>,JsonMap),
-  io:fwrite(user,"======= s3_req_test:~n~p~n~n",[Resp]),
-  ?assert(Resp =:= ok).
+  {IsOk,_ResultMap} = Resp = s3(<<"list">>,JsonMap),
+  io:fwrite(user,"==== s3_req_test:~n~p~n~n",[Resp]),
+  ?assert(IsOk =:= ok).
  
-
+s3_parse_resp_test() ->
+  {Root, _RemainingText} = xmerl_scan:file("test/xml/list.xml"),
+  Contents = s3_resp_extract(<<"list">>,Root),
+  ?assert(is_list(Contents)).
 
 

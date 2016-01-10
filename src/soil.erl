@@ -34,7 +34,7 @@ handle(Action,JsonMap,Key) when Action =:= <<"login">> ->
 	R3 = maps:put(<<"customer">>,Name,R2),
 	R4 = maps:put(<<"email">>,Email,R3), 
         HomeKey = maps:get(<<"home_key">>,Customer),
-	R5 = maps:put(<<"home_key">>,HomeKey,R4), 
+	R5 = maps:put(<<"key">>,HomeKey,R4), 
 	Cid = maps:get(<<"id">>,Customer),
 	JwtPayload = #{ 
           <<"customer_id">> => Cid
