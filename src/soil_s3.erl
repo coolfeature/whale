@@ -66,6 +66,8 @@ s3(Type,JsonMap) when Type =:= <<"upload">> ->
   DateTimeExpires = calendar:gregorian_seconds_to_datetime(Add15Mins),
   Expiration = soil_utls:format_datetime(DateTimeExpires),
   Acl = <<"public-read">>,
+  MinContentLength = 100,
+  MaxContentLength = 5048576,
   PolicyMap = #{
     <<"expiration">> => Expiration
     ,<<"conditions">> => [
@@ -74,7 +76,7 @@ s3(Type,JsonMap) when Type =:= <<"upload">> ->
       ,#{ <<"acl">> => Acl }
       %%,#{ <<"success_action_redirect">> => <<"http://drook.net">> }
       ,[ <<"starts-with">>, <<"$Content-Type">>, <<"">> ]
-      ,[ <<"content-length-range">>, 0, 1048576 ]
+      ,[ <<"content-length-range">>, MinContentLength, MaxContentLength ]
     ]
   },
   %% 2) Base64 encode Policy and generate signature
@@ -92,6 +94,10 @@ s3(Type,JsonMap) when Type =:= <<"upload">> ->
     ,<<"signature">> => SignatureBase64
     ,<<"key">> => BuketKey
     ,<<"acl">> => Acl
+    ,<<"size">> => #{ 
+      <<"min">> => MinContentLength
+      , <<"max">> => MaxContentLength 
+    }
   },
   {ok,ResultMap};
 s3(_Type,_JsonMap) ->
