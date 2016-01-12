@@ -38,7 +38,9 @@ s3_host(<<"upload">>) ->
 s3_host(<<"list">>) ->
   Bucket = iolist_to_binary([ ?S3_USER_BUCKET,<<".">> ]),
   Host = re:replace(?S3_HOSTNAME,<<"{{bucket}}">>,Bucket,[{return,binary}]),
-  re:replace(Host,<<"{{region}}">>,<<".">>,[{return,binary}]).
+  re:replace(Host,<<"{{region}}">>,<<".">>,[{return,binary}]);
+s3_host(<<"delete">>) ->
+  s3_host(<<"list">>).
 
 %%
 %% @doc Hands out s3 tickets.
@@ -100,6 +102,22 @@ s3(Type,JsonMap) when Type =:= <<"upload">> ->
     }
   },
   {ok,ResultMap};
+
+s3(Type,JsonMap) when Type =:= <<"delete">> ->
+  Body = maps:get(<<"body">>,JsonMap),
+  Urls = maps:get(<<"data">>,Body),
+  CallResults = lists:foldl(fun(Url,Acc) -> 
+    Map = #{ <<"url">> => Url },
+    RequestMap = s3_authorization(Type,Map),
+    CallResult = case s3_req(RequestMap) of 
+      {ok,{{204,_NoContent},<<>>}} ->
+        #{ <<"result">> => <<"ok">>, <<"url">> => Url };
+      {error,_Error} ->
+        #{ <<"result">> => <<"error">>, <<"url">> => Url }
+    end,
+    Acc ++ [CallResult]
+  end,[],Urls), 
+  {ok,CallResults};
 s3(_Type,_JsonMap) ->
   {error,#{ <<"unauthorised">> => <<"Invalid">> }}.
 
@@ -134,6 +152,29 @@ s3_authorization(Type,JsonMap) when Type =:= <<"list">> ->
     ,<<"Access">> => Access
     ,<<"Secret">> => Secret
   }, 
+  s3_authorization(ParamMap);
+
+s3_authorization(Type,Map) when Type =:= <<"delete">> ->
+  Url = maps:get(<<"url">>,Map),
+  S3Referer = soil_utls:get_env(s3_referer),
+  Headers = [{<<"Referer">>,S3Referer}],
+  %% TODO: Remove what is after ? 
+  Path = re:replace(Url,<<"^https?://.*.com">>,<<"">>,[{return,binary}]),
+  DateTime = calendar:universal_time(),
+  Access = soil_utls:get_env(s3_access),
+  Secret = soil_utls:get_env(s3_secret),
+  ParamMap = #{
+    <<"Method">> => <<"DELETE">>
+    ,<<"URI">> => Path
+    ,<<"Host">> => s3_host(Type)
+    ,<<"Headers">> => Headers
+    ,<<"Payload">> => <<"">>
+    ,<<"Region">> => ?S3_REGION
+    ,<<"Service">> => <<"s3">>
+    ,<<"DateTime">> => DateTime
+    ,<<"Access">> => Access
+    ,<<"Secret">> => Secret
+  }, 
   s3_authorization(ParamMap).
 
 %%
@@ -149,7 +190,7 @@ s3_authorization(ParamMap) when is_map(ParamMap) ->
   URI = maps:get(<<"URI">>,ParamMap),
   CanonicalURI = s3_encode_uri(URI),
   %% CanonicalQueryString
-  Query = maps:get(<<"Query">>,ParamMap),
+  Query = maps:get(<<"Query">>,ParamMap,[]),
   CanonicalQueryString = s3_encode_query_string(Query),
   ParamMap2 = maps:put(<<"QueryString">>,CanonicalQueryString,ParamMap),
   %% HashedPayload
@@ -354,6 +395,17 @@ sample_test_data() ->
     ,<<"Secret">> => <<"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY">>
   }).
 
+delete_test() -> 
+  Urls = [
+    <<"http://drook-users.s3-eu-west-1.amazonaws.com/0HPdYgj3YXlCO2A-RP0vXlzYK4UH2sO6LOsrPeMwDP8/content/813-szympiotr.jpg">>
+    ,<<"http://drook-users.s3-eu-west-1.amazonaws.com/0HPdYgj3YXlCO2A-RP0vXlzYK4UH2sO6LOsrPeMwDP8/content/812-stawarska.jpg">>
+    ,<<"http://drook-users.s3-eu-west-1.amazonaws.com/0HPdYgj3YXlCO2A-RP0vXlzYK4UH2sO6LOsrPeMwDP8/content/811-spiimy.jpg">>
+  ],
+  JsonMap = #{ <<"body">> => #{ <<"data">> => Urls}},
+   {IsOk,_ResultMap} = Resp = s3(<<"delete">>,JsonMap),
+  io:fwrite(user,"==== s3_req_test:~n~p~n~n",[Resp]),
+  ?assert(IsOk =:= ok).
+  
 sign_string_test() ->
   TestData = sample_test_data(),
   Test = iolist_to_binary([<<"AWS4-HMAC-SHA256\n">>,
@@ -375,7 +427,7 @@ signature_test() ->
   io:fwrite(user,"==== signature_test:~n~p~n~n =:= ~n~n~p~n~n",[Test,Result]),
   ?assert(Test =:= Result).
 
-s3_req_test() ->
+s3_req_test_ignore() ->
   JsonMap = #{ <<"body">> => 
     #{ <<"key">> => <<"0HPdYgj3YXlCO2A-RP0vXlzYK4UH2sO6LOsrPeMwDP8">> }},
   {IsOk,_ResultMap} = Resp = s3(<<"list">>,JsonMap),
